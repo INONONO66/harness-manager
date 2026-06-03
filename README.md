@@ -14,10 +14,7 @@ $ hm detect
 │ Claude Code    │ Installed │ 2.1.152 (Claude Code) │ OAuth + OAuth (macOS Keychain) + API key (ANTHROPIC_API_KEY) │
 │ Codex CLI      │ Installed │ codex-cli 0.136.0     │ ChatGPT OAuth + API key (OPENAI_API_KEY)                     │
 │ OpenCode       │ Installed │ 1.15.13               │ Provider auth (7 providers) + API key (ANTHROPIC_API_KEY)    │
-│ Zed            │ Installed │ Zed 1.4.2             │ Not configured                                               │
 │ Pi             │ Not found │ -                     │ Not configured                                               │
-│ Gemini CLI     │ Not found │ -                     │ Not configured                                               │
-│ ...            │           │                       │                                                              │
 ╰────────────────┴───────────┴───────────────────────┴──────────────────────────────────────────────────────────────╯
 ```
 
@@ -32,7 +29,7 @@ $ hm detect
 
 ## Supported Runtimes
 
-13 runtimes detected out of the box. Adding a new one is a single data entry in `registry.rs`.
+4 runtimes supported out of the box. Adding a new one is a single data entry in `registry.rs`.
 
 | Runtime | Detection | Auth | Injection |
 |---|---|---|---|
@@ -40,14 +37,6 @@ $ hm detect
 | Codex CLI | `codex` binary + `~/.codex/` | ChatGPT OAuth + env | `OPENAI_BASE_URL` + `OPENAI_API_KEY` |
 | OpenCode | `opencode` binary + `~/.config/opencode/` | Provider auth + env | `OPENAI_BASE_URL` + `OPENAI_API_KEY` |
 | Pi | `pi` binary + `~/.pi/` | Token file | - |
-| Gemini CLI | `gemini` binary + `~/.gemini/` | env | `GOOGLE_API_ENDPOINT` + `GOOGLE_API_KEY` |
-| Goose | `goose` binary | env | `OPENAI_BASE_URL` + `OPENAI_API_KEY` |
-| Hermes | `hermes` binary + `~/.hermes/` | env | `OPENAI_BASE_URL` + `OPENAI_API_KEY` |
-| Aider | `aider` binary | env | `OPENAI_BASE_URL` + `OPENAI_API_KEY` |
-| Amp | `amp` binary | secrets.json | - |
-| Kiro | `kiro` binary | - | - |
-| GitHub Copilot | `copilot` binary | - | - |
-| Zed | `zed` binary | - | - |
 
 ## Install
 
@@ -58,7 +47,7 @@ cargo install --path .
 Or build from source:
 
 ```bash
-git clone https://github.com/anthropics/harness-manager.git
+git clone https://github.com/INONONO66/harness-manager.git
 cd harness-manager
 cargo build --release
 cp target/release/hm ~/.local/bin/
