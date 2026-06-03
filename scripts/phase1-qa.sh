@@ -124,12 +124,13 @@ fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 echo ""
-echo "=== Sanity: Claude has no isolation in Phase 1 ==="
+echo "=== Sanity: Claude isolation exists after Phase 2 ==="
 "$HM" use claude --print-env > "$EVIDENCE/sanity.env" 2>"$EVIDENCE/sanity.err" || fail "hm use claude --print-env exited non-zero"
-nohas "^CLAUDE_CONFIG_DIR=${HM_DATA}" "$EVIDENCE/sanity.env"
-nohas "^HOME=${HM_DATA}/runtimes/claude" "$EVIDENCE/sanity.env"
-test ! -d "$HM_DATA/runtimes/claude" || fail "Claude isolation tree created (should be Phase 2)"
-pass "Claude isolation properly deferred to Phase 2"
+has "^CLAUDE_CONFIG_DIR=${HM_DATA}/runtimes/claude/home/\.claude$" "$EVIDENCE/sanity.env"
+has "^HOME=${HM_DATA}/runtimes/claude/home$" "$EVIDENCE/sanity.env"
+test -f "$HM_DATA/runtimes/claude/home/.claude/settings.json" || fail "Claude settings.json not seeded"
+test -f "$HM_DATA/runtimes/claude/state/apikey.sh" || fail "Claude apikey.sh not seeded"
+pass "Claude isolation enabled by Phase 2"
 
 # ─────────────────────────────────────────────────────────────────────────────
 echo ""
