@@ -76,10 +76,9 @@ pub fn load_config() -> anyhow::Result<HmConfig> {
 pub fn resolve_profile(config: &HmConfig, name: Option<&str>) -> anyhow::Result<ResolvedProfile> {
     let profile_name = match name {
         Some(n) => n.to_string(),
-        None => config
-            .default_profile
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("no profile specified and no default_profile in config"))?,
+        None => config.default_profile.clone().ok_or_else(|| {
+            anyhow::anyhow!("no profile specified and no default_profile in config")
+        })?,
     };
 
     let profile = config
@@ -119,5 +118,9 @@ pub fn resolve_profile(config: &HmConfig, name: Option<&str>) -> anyhow::Result<
 
 pub fn config_file_path() -> Option<PathBuf> {
     let p = config_path();
-    if p.is_file() { Some(p) } else { None }
+    if p.is_file() {
+        Some(p)
+    } else {
+        None
+    }
 }

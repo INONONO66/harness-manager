@@ -57,21 +57,49 @@ impl fmt::Display for AuthStatus {
 #[derive(Debug, Clone)]
 pub enum ConfigLocator {
     /// Check env var first, then fall back to a path relative to $HOME.
-    EnvOrHome { env_var: &'static str, home_relative: &'static str },
+    EnvOrHome {
+        env_var: &'static str,
+        home_relative: &'static str,
+    },
     /// Path relative to XDG config dir (e.g. "opencode" → ~/.config/opencode).
-    XdgConfig { subdir: &'static str, env_override: &'static str },
+    XdgConfig {
+        subdir: &'static str,
+        env_override: &'static str,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub enum AuthProbe {
-    EnvKeys { vars: &'static [&'static str], label: &'static str },
-    JsonFile { relative_path: &'static str, existence_field: &'static str, label: &'static str },
-    OAuthFile { relative_path: &'static str, token_field: &'static str, label: &'static str },
+    EnvKeys {
+        vars: &'static [&'static str],
+        label: &'static str,
+    },
+    JsonFile {
+        relative_path: &'static str,
+        existence_field: &'static str,
+        label: &'static str,
+    },
+    OAuthFile {
+        relative_path: &'static str,
+        token_field: &'static str,
+        label: &'static str,
+    },
     /// OAuth file with nested path (e.g. "claudeAiOauth.accessToken").
-    NestedOAuthFile { relative_path: &'static str, path: &'static [&'static str], label: &'static str },
+    NestedOAuthFile {
+        relative_path: &'static str,
+        path: &'static [&'static str],
+        label: &'static str,
+    },
     /// Non-empty JSON file in a data directory (resolved separately from config dir).
-    DataDirJsonFile { data_subdir: &'static str, file_name: &'static str, label: &'static str },
-    KeychainHeuristic { marker_file: &'static str, label: &'static str },
+    DataDirJsonFile {
+        data_subdir: &'static str,
+        file_name: &'static str,
+        label: &'static str,
+    },
+    KeychainHeuristic {
+        marker_file: &'static str,
+        label: &'static str,
+    },
 }
 
 /// Declarative spec for one agent runtime.

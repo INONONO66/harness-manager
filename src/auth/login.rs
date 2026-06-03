@@ -1,6 +1,6 @@
+use anyhow::bail;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
-use anyhow::bail;
 
 pub fn run_auth_login(runtime: &str) -> anyhow::Result<()> {
     let normalized = runtime.to_lowercase();

@@ -1,7 +1,7 @@
 pub mod login;
 
-use colored::Colorize;
 use crate::runtimes;
+use colored::Colorize;
 
 const ENV_VARS_TO_CHECK: &[&str] = &[
     "ANTHROPIC_API_KEY",
@@ -57,7 +57,7 @@ pub fn run_auth_status() -> anyhow::Result<()> {
         let status = match std::env::var(var) {
             Ok(val) => {
                 let display = if val.len() > 12 {
-                    format!("{}...{}", &val[..4], &val[val.len()-4..])
+                    format!("{}...{}", &val[..4], &val[val.len() - 4..])
                 } else {
                     val
                 };

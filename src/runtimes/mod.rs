@@ -1,6 +1,6 @@
-pub mod types;
 pub mod auth;
 pub mod registry;
+pub mod types;
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -10,7 +10,10 @@ use types::*;
 /// Resolve a config directory from a ConfigLocator spec.
 fn resolve_config_dir(locator: &ConfigLocator) -> Option<PathBuf> {
     match locator {
-        ConfigLocator::EnvOrHome { env_var, home_relative } => {
+        ConfigLocator::EnvOrHome {
+            env_var,
+            home_relative,
+        } => {
             if !env_var.is_empty() {
                 if let Ok(dir) = std::env::var(env_var) {
                     let p = PathBuf::from(&dir);
@@ -19,9 +22,14 @@ fn resolve_config_dir(locator: &ConfigLocator) -> Option<PathBuf> {
                     }
                 }
             }
-            dirs::home_dir().map(|h| h.join(home_relative)).filter(|p| p.is_dir())
+            dirs::home_dir()
+                .map(|h| h.join(home_relative))
+                .filter(|p| p.is_dir())
         }
-        ConfigLocator::XdgConfig { subdir, env_override } => {
+        ConfigLocator::XdgConfig {
+            subdir,
+            env_override,
+        } => {
             if !env_override.is_empty() {
                 if let Ok(dir) = std::env::var(env_override) {
                     let p = PathBuf::from(&dir);
@@ -33,10 +41,15 @@ fn resolve_config_dir(locator: &ConfigLocator) -> Option<PathBuf> {
             // Try XDG_CONFIG_HOME first, then platform default, then ~/.config fallback.
             // Many CLI tools use ~/.config/ even on macOS where dirs::config_dir()
             // returns ~/Library/Application Support/.
-            if let Some(p) = dirs::config_dir().map(|c| c.join(subdir)).filter(|p| p.is_dir()) {
+            if let Some(p) = dirs::config_dir()
+                .map(|c| c.join(subdir))
+                .filter(|p| p.is_dir())
+            {
                 return Some(p);
             }
-            dirs::home_dir().map(|h| h.join(".config").join(subdir)).filter(|p| p.is_dir())
+            dirs::home_dir()
+                .map(|h| h.join(".config").join(subdir))
+                .filter(|p| p.is_dir())
         }
     }
 }
@@ -64,10 +77,7 @@ pub fn find_binary(names: &[&str]) -> Option<PathBuf> {
 
 /// Get version string from a binary.
 fn get_version(binary: &PathBuf, version_arg: &str) -> Option<String> {
-    let output = Command::new(binary)
-        .arg(version_arg)
-        .output()
-        .ok()?;
+    let output = Command::new(binary).arg(version_arg).output().ok()?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -84,7 +94,9 @@ fn detect_one(spec: &RuntimeSpec) -> DetectedRuntime {
     let binary = find_binary(spec.binary_names);
     let installed = binary.is_some();
     let config_dir = resolve_config_dir(&spec.config_locator);
-    let version = binary.as_ref().and_then(|b| get_version(b, spec.version_arg));
+    let version = binary
+        .as_ref()
+        .and_then(|b| get_version(b, spec.version_arg));
     let config_path = find_config_file(&config_dir, spec.config_files).or(config_dir.clone());
     let auth_sources = if installed {
         auth::probe_auth_all(spec.auth_probes, config_dir.as_deref())

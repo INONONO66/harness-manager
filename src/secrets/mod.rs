@@ -12,8 +12,7 @@ pub fn resolve_secret(uri: &str) -> anyhow::Result<String> {
     }
 
     if let Some(var) = stripped.strip_prefix("env/") {
-        return std::env::var(var)
-            .with_context(|| format!("secret env var not set: {}", var));
+        return std::env::var(var).with_context(|| format!("secret env var not set: {}", var));
     }
 
     if let Some(service) = stripped.strip_prefix("keychain/") {
@@ -32,7 +31,11 @@ fn resolve_keychain(service: &str) -> anyhow::Result<String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("keychain lookup failed for service '{}': {}", service, stderr.trim());
+        bail!(
+            "keychain lookup failed for service '{}': {}",
+            service,
+            stderr.trim()
+        );
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -40,7 +43,10 @@ fn resolve_keychain(service: &str) -> anyhow::Result<String> {
 
 #[cfg(not(target_os = "macos"))]
 fn resolve_keychain(service: &str) -> anyhow::Result<String> {
-    bail!("keychain secrets are only supported on macOS (requested service: {})", service);
+    bail!(
+        "keychain secrets are only supported on macOS (requested service: {})",
+        service
+    );
 }
 
 pub fn mask_secret(value: &str) -> String {

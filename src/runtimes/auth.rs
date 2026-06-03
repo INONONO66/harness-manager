@@ -17,21 +17,30 @@ pub fn probe_auth_all(probes: &[AuthProbe], config_dir: Option<&Path>) -> Vec<Au
 fn run_probe(probe: &AuthProbe, config_dir: Option<&Path>) -> AuthStatus {
     match probe {
         AuthProbe::EnvKeys { vars, label } => probe_env_keys(vars, label),
-        AuthProbe::JsonFile { relative_path, existence_field, label } => {
-            probe_json_file(config_dir, relative_path, existence_field, label)
-                .unwrap_or(AuthStatus::NotConfigured)
-        }
-        AuthProbe::OAuthFile { relative_path, token_field, label } => {
-            probe_oauth_file(config_dir, relative_path, token_field, label)
-                .unwrap_or(AuthStatus::NotConfigured)
-        }
-        AuthProbe::NestedOAuthFile { relative_path, path, label } => {
-            probe_nested_oauth(config_dir, relative_path, path, label)
-                .unwrap_or(AuthStatus::NotConfigured)
-        }
-        AuthProbe::DataDirJsonFile { data_subdir, file_name, label } => {
-            probe_data_dir_json(data_subdir, file_name, label)
-                .unwrap_or(AuthStatus::NotConfigured)
+        AuthProbe::JsonFile {
+            relative_path,
+            existence_field,
+            label,
+        } => probe_json_file(config_dir, relative_path, existence_field, label)
+            .unwrap_or(AuthStatus::NotConfigured),
+        AuthProbe::OAuthFile {
+            relative_path,
+            token_field,
+            label,
+        } => probe_oauth_file(config_dir, relative_path, token_field, label)
+            .unwrap_or(AuthStatus::NotConfigured),
+        AuthProbe::NestedOAuthFile {
+            relative_path,
+            path,
+            label,
+        } => probe_nested_oauth(config_dir, relative_path, path, label)
+            .unwrap_or(AuthStatus::NotConfigured),
+        AuthProbe::DataDirJsonFile {
+            data_subdir,
+            file_name,
+            label,
+        } => {
+            probe_data_dir_json(data_subdir, file_name, label).unwrap_or(AuthStatus::NotConfigured)
         }
         AuthProbe::KeychainHeuristic { marker_file, label } => {
             probe_keychain(config_dir, marker_file, label)
@@ -70,9 +79,7 @@ fn probe_json_file(
     }
 
     if !existence_field.is_empty() {
-        if json.get(existence_field).is_some()
-            || json.get(&to_camel(existence_field)).is_some()
-        {
+        if json.get(existence_field).is_some() || json.get(&to_camel(existence_field)).is_some() {
             return Some(AuthStatus::Valid {
                 detail: label.to_string(),
             });
@@ -125,18 +132,16 @@ fn probe_nested_oauth(
 
     let mut current = &json;
     for segment in path {
-        current = current.get(segment).or_else(|| current.get(&to_camel(segment)))?;
+        current = current
+            .get(segment)
+            .or_else(|| current.get(&to_camel(segment)))?;
     }
 
     let token = current.as_str()?;
     Some(token_to_auth_status(token, label))
 }
 
-fn probe_data_dir_json(
-    data_subdir: &str,
-    file_name: &str,
-    label: &str,
-) -> Option<AuthStatus> {
+fn probe_data_dir_json(data_subdir: &str, file_name: &str, label: &str) -> Option<AuthStatus> {
     let file = resolve_data_file(data_subdir, file_name)?;
     if !file.is_file() {
         return None;
@@ -156,17 +161,18 @@ fn probe_data_dir_json(
 }
 
 fn resolve_data_file(data_subdir: &str, file_name: &str) -> Option<std::path::PathBuf> {
-    if let Some(f) = dirs::data_dir().map(|d| d.join(data_subdir).join(file_name)).filter(|f| f.is_file()) {
+    if let Some(f) = dirs::data_dir()
+        .map(|d| d.join(data_subdir).join(file_name))
+        .filter(|f| f.is_file())
+    {
         return Some(f);
     }
-    dirs::home_dir().map(|h| h.join(".local/share").join(data_subdir).join(file_name)).filter(|f| f.is_file())
+    dirs::home_dir()
+        .map(|h| h.join(".local/share").join(data_subdir).join(file_name))
+        .filter(|f| f.is_file())
 }
 
-fn probe_keychain(
-    config_dir: Option<&Path>,
-    marker_file: &str,
-    label: &str,
-) -> AuthStatus {
+fn probe_keychain(config_dir: Option<&Path>, marker_file: &str, label: &str) -> AuthStatus {
     if !cfg!(target_os = "macos") {
         return AuthStatus::NotConfigured;
     }
@@ -252,8 +258,7 @@ fn decode_jwt_expiry(token: &str) -> Option<String> {
 }
 
 fn base64_decode(input: &str) -> Option<Vec<u8>> {
-    const TABLE: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     let mut output = Vec::new();
     let mut buf: u32 = 0;

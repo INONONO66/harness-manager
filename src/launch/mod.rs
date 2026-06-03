@@ -26,18 +26,26 @@ const GLOBAL_AI_STRIP: &[&str] = &[
 
 fn find_runtime_spec(name: &str) -> Option<&'static RuntimeSpec> {
     let lower = name.to_lowercase();
-    RUNTIMES.iter().find(|r| {
-        r.name.to_lowercase() == lower
-            || r.binary_names.iter().any(|b| *b == lower)
-    })
+    RUNTIMES
+        .iter()
+        .find(|r| r.name.to_lowercase() == lower || r.binary_names.iter().any(|b| *b == lower))
 }
 
-pub fn run_use(runtime: &str, profile_name: Option<&str>, extra_args: &[String]) -> anyhow::Result<()> {
-    let spec = find_runtime_spec(runtime)
-        .ok_or_else(|| anyhow::anyhow!("unknown runtime: '{}'. Run `hm detect` to see available runtimes.", runtime))?;
+pub fn run_use(
+    runtime: &str,
+    profile_name: Option<&str>,
+    extra_args: &[String],
+) -> anyhow::Result<()> {
+    let spec = find_runtime_spec(runtime).ok_or_else(|| {
+        anyhow::anyhow!(
+            "unknown runtime: '{}'. Run `hm detect` to see available runtimes.",
+            runtime
+        )
+    })?;
 
-    let binary = crate::runtimes::find_binary(spec.binary_names)
-        .ok_or_else(|| anyhow::anyhow!("{} is not installed (binary not found in PATH)", spec.name))?;
+    let binary = crate::runtimes::find_binary(spec.binary_names).ok_or_else(|| {
+        anyhow::anyhow!("{} is not installed (binary not found in PATH)", spec.name)
+    })?;
 
     let mut cmd = Command::new(&binary);
     cmd.args(extra_args);
@@ -46,7 +54,8 @@ pub fn run_use(runtime: &str, profile_name: Option<&str>, extra_args: &[String])
         let hm_config = config::load_config()?;
         let resolved = config::resolve_profile(&hm_config, Some(profile_arg))?;
 
-        eprintln!("{} {} with profile '{}'",
+        eprintln!(
+            "{} {} with profile '{}'",
             "Launching".green().bold(),
             spec.name.bold(),
             resolved.name.cyan()
@@ -66,7 +75,10 @@ pub fn run_use(runtime: &str, profile_name: Option<&str>, extra_args: &[String])
         if let Some(ref injection) = spec.injection {
             if let Some(ref endpoint) = resolved.endpoint {
                 let effective_endpoint = if injection.endpoint_strip_v1 {
-                    endpoint.trim_end_matches('/').trim_end_matches("/v1").to_string()
+                    endpoint
+                        .trim_end_matches('/')
+                        .trim_end_matches("/v1")
+                        .to_string()
                 } else {
                     endpoint.clone()
                 };
@@ -96,7 +108,8 @@ pub fn run_use(runtime: &str, profile_name: Option<&str>, extra_args: &[String])
             cmd.env(k, v);
         }
     } else {
-        eprintln!("{} {} (no profile)",
+        eprintln!(
+            "{} {} (no profile)",
             "Launching".green().bold(),
             spec.name.bold()
         );

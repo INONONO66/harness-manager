@@ -70,12 +70,7 @@ pub fn run_detect() -> anyhow::Result<()> {
         let (auth_text, auth_color) = auth_summary(&rt.auth_sources);
         let auth = Cell::new(&auth_text).fg(auth_color);
 
-        table.add_row(vec![
-            Cell::new(&rt.name),
-            status,
-            version,
-            auth,
-        ]);
+        table.add_row(vec![Cell::new(&rt.name), status, version, auth]);
     }
 
     println!("{}", table);
@@ -113,8 +108,7 @@ pub fn run_detect() -> anyhow::Result<()> {
     if found == 0 {
         println!(
             "{}",
-            "No agent runtimes found. Install Claude Code, Codex CLI, OpenCode, or Pi."
-                .yellow()
+            "No agent runtimes found. Install Claude Code, Codex CLI, OpenCode, or Pi.".yellow()
         );
     }
 
