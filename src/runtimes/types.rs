@@ -117,6 +117,8 @@ pub struct RuntimeSpec {
     pub config_files: &'static [&'static str],
     pub auth_probes: &'static [AuthProbe],
     pub injection: Option<&'static InjectionSpec>,
+    /// Per-runtime isolation recipe for `hm use`. None = no isolation (e.g. Claude in Phase 1).
+    pub isolation: Option<&'static IsolationSpec>,
 }
 
 #[derive(Debug, Clone)]
@@ -128,4 +130,34 @@ pub struct InjectionSpec {
     pub strip_envs: &'static [&'static str],
     /// SDK appends /v1 automatically — strip trailing /v1 from endpoint before injecting.
     pub endpoint_strip_v1: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Isolation spec: declarative recipe for per-runtime environment redirection
+// ---------------------------------------------------------------------------
+
+/// Per-runtime isolation: build $HM tree, redirect env, optionally seed config files.
+///
+/// Applied by `launch::run_use` when `RuntimeSpec.isolation` is Some.
+/// Token substitution in `static_envs` values and `seed_files` (both path and content):
+///   `{home}`  → `$HM/runtimes/<subdir>/home`
+///   `{state}` → `$HM/runtimes/<subdir>/state`
+///   `{tmp}`   → `$HM/runtimes/<subdir>/tmp`
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct IsolationSpec {
+    /// Subdirectory under `$HM/runtimes/` for this runtime (e.g. "codex").
+    pub subdir: &'static str,
+    /// If true, set `HOME=$HM/runtimes/<subdir>/home` (Layer 2 — catches hardcoded ~/.X paths).
+    pub spoof_home: bool,
+    /// Directories to pre-create under `home/` (e.g. `[".codex"]` or `[".config/opencode"]`).
+    /// Ensures the runtime finds expected layout when it writes to its env-redirected location.
+    pub home_subdirs: &'static [&'static str],
+    /// Environment variables to set (key, value-template). Value is token-substituted.
+    pub static_envs: &'static [(&'static str, &'static str)],
+    /// Config files to seed (path-template, content-template). Both are token-substituted.
+    /// Policy: create-if-missing (Phase 1). User edits are preserved across launches.
+    pub seed_files: &'static [(&'static str, &'static str)],
+    /// Optional user-facing warning printed to stderr at launch (e.g. Claude Keychain note).
+    pub caveat: Option<&'static str>,
 }

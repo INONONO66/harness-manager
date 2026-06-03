@@ -3,6 +3,7 @@ mod cli;
 mod config;
 mod detect;
 mod inject;
+mod isolation;
 mod launch;
 mod runtimes;
 mod secrets;
@@ -46,9 +47,10 @@ fn main() -> anyhow::Result<()> {
         Commands::Use {
             runtime,
             profile,
+            print_env,
             args,
         } => {
-            launch::run_use(&runtime, profile.as_deref(), &args)?;
+            launch::run_use(&runtime, profile.as_deref(), print_env, &args)?;
         }
     }
 

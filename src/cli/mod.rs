@@ -38,6 +38,11 @@ pub enum Commands {
         #[arg(short, long)]
         profile: Option<String>,
 
+        /// Print the would-be environment to stdout and exit (for verification).
+        /// Filesystem side-effects (isolation tree, seed files) still run.
+        #[arg(long)]
+        print_env: bool,
+
         /// Extra arguments to pass to the runtime
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,

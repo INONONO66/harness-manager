@@ -6,6 +6,7 @@ use anyhow::bail;
 use colored::Colorize;
 
 use crate::config;
+use crate::isolation;
 use crate::runtimes::registry::RUNTIMES;
 use crate::runtimes::types::RuntimeSpec;
 
@@ -34,6 +35,7 @@ fn find_runtime_spec(name: &str) -> Option<&'static RuntimeSpec> {
 pub fn run_use(
     runtime: &str,
     profile_name: Option<&str>,
+    print_env: bool,
     extra_args: &[String],
 ) -> anyhow::Result<()> {
     let spec = find_runtime_spec(runtime).ok_or_else(|| {
@@ -43,33 +45,46 @@ pub fn run_use(
         )
     })?;
 
-    let binary = crate::runtimes::find_binary(spec.binary_names).ok_or_else(|| {
-        anyhow::anyhow!("{} is not installed (binary not found in PATH)", spec.name)
-    })?;
+    let iso_setup = if let Some(iso) = spec.isolation {
+        let paths = isolation::IsolationPaths::from_spec(iso);
+        isolation::ensure_isolation_tree(iso, &paths)?;
+        isolation::seed_files(iso, &paths)?;
+        Some((iso, paths))
+    } else {
+        None
+    };
 
-    let mut cmd = Command::new(&binary);
-    cmd.args(extra_args);
+    let mut env: HashMap<String, String> = std::env::vars().collect();
 
-    if let Some(profile_arg) = profile_name {
+    for var in GLOBAL_AI_STRIP {
+        env.remove(*var);
+    }
+    if let Some(injection) = spec.injection {
+        for var in injection.strip_envs {
+            env.remove(*var);
+        }
+    }
+
+    if let Some((iso, ref paths)) = iso_setup {
+        for (k, v) in isolation::build_isolation_env(iso, paths) {
+            env.insert(k, v);
+        }
+        if let Some(caveat) = iso.caveat {
+            eprintln!("{} {}", "⚠".yellow().bold(), caveat);
+        }
+    }
+
+    let profile_applied = if let Some(profile_arg) = profile_name {
         let hm_config = config::load_config()?;
         let resolved = config::resolve_profile(&hm_config, Some(profile_arg))?;
 
-        eprintln!(
-            "{} {} with profile '{}'",
-            "Launching".green().bold(),
-            spec.name.bold(),
-            resolved.name.cyan()
-        );
-
-        let mut env: HashMap<String, String> = std::env::vars().collect();
-
-        for var in GLOBAL_AI_STRIP {
-            env.remove(*var);
-        }
-        if let Some(injection) = spec.injection {
-            for var in injection.strip_envs {
-                env.remove(*var);
-            }
+        if !print_env {
+            eprintln!(
+                "{} {} with profile '{}'",
+                "Launching".green().bold(),
+                spec.name.bold(),
+                resolved.name.cyan()
+            );
         }
 
         if let Some(injection) = spec.injection {
@@ -84,7 +99,6 @@ pub fn run_use(
                 };
                 env.insert(injection.endpoint_env.to_string(), effective_endpoint);
             }
-
             if let Some(ref bearer) = resolved.bearer {
                 env.insert(injection.api_key_env.to_string(), bearer.clone());
             }
@@ -102,19 +116,44 @@ pub fn run_use(
             env.insert("NO_PROXY".to_string(), no_proxy.clone());
             env.insert("no_proxy".to_string(), no_proxy.clone());
         }
-
-        cmd.env_clear();
-        for (k, v) in &env {
-            cmd.env(k, v);
-        }
+        true
     } else {
+        false
+    };
+
+    if print_env {
+        let mut keys: Vec<&String> = env.keys().collect();
+        keys.sort();
+        for k in keys {
+            println!("{}={}", k, env[k]);
+        }
+        return Ok(());
+    }
+
+    let binary = crate::runtimes::find_binary(spec.binary_names).ok_or_else(|| {
+        anyhow::anyhow!("{} is not installed (binary not found in PATH)", spec.name)
+    })?;
+
+    if !profile_applied {
+        let suffix = if iso_setup.is_some() {
+            "(isolated, no profile)"
+        } else {
+            "(no profile)"
+        };
         eprintln!(
-            "{} {} (no profile)",
+            "{} {} {}",
             "Launching".green().bold(),
-            spec.name.bold()
+            spec.name.bold(),
+            suffix
         );
     }
 
+    let mut cmd = Command::new(&binary);
+    cmd.args(extra_args);
+    cmd.env_clear();
+    for (k, v) in &env {
+        cmd.env(k, v);
+    }
     let err = cmd.exec();
     bail!("failed to exec {}: {}", binary.display(), err);
 }
