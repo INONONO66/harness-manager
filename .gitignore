@@ -1,3 +1,6 @@
 /target
 .omo/
 .codegraph/
+
+# Internal working docs (drafts, design notes, research)
+*.local.md
