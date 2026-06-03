@@ -9,6 +9,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use crate::runtimes::types::IsolationSpec;
 
 /// Resolve the `hm` data directory.
@@ -60,8 +63,7 @@ pub fn subst_tokens(template: &str, paths: &IsolationPaths) -> String {
 
 /// Create the isolation tree: `home/`, `state/`, `tmp/`, plus all `home_subdirs`.
 pub fn ensure_isolation_tree(spec: &IsolationSpec, paths: &IsolationPaths) -> Result<()> {
-    fs::create_dir_all(&paths.home)
-        .with_context(|| format!("create {}", paths.home.display()))?;
+    fs::create_dir_all(&paths.home).with_context(|| format!("create {}", paths.home.display()))?;
     fs::create_dir_all(&paths.state)
         .with_context(|| format!("create {}", paths.state.display()))?;
     fs::create_dir_all(&paths.tmp).with_context(|| format!("create {}", paths.tmp.display()))?;
@@ -79,23 +81,31 @@ pub fn ensure_isolation_tree(spec: &IsolationSpec, paths: &IsolationPaths) -> Re
 /// User edits to seeded files are preserved across launches.
 /// To reset a runtime to seed defaults, use `hm purge <runtime>` (Phase 3).
 pub fn seed_files(spec: &IsolationSpec, paths: &IsolationPaths) -> Result<()> {
-    for (path_template, content_template) in spec.seed_files {
-        let path = PathBuf::from(subst_tokens(path_template, paths));
-        if path.exists() {
+    for seed in spec.seed_files {
+        let path = PathBuf::from(subst_tokens(seed.path, paths));
+        if path.exists() && !seed.overwrite {
             continue;
         }
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("create parent {}", parent.display()))?;
         }
-        let content = subst_tokens(content_template, paths);
+        let content = subst_tokens(seed.content, paths);
         fs::write(&path, content).with_context(|| format!("write seed {}", path.display()))?;
+        #[cfg(unix)]
+        if let Some(mode) = seed.mode {
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode))
+                .with_context(|| format!("chmod {:o} {}", mode, path.display()))?;
+        }
     }
     Ok(())
 }
 
 /// Build the isolation env map: `HOME` (if spoof_home) + token-substituted `static_envs`.
-pub fn build_isolation_env(spec: &IsolationSpec, paths: &IsolationPaths) -> HashMap<String, String> {
+pub fn build_isolation_env(
+    spec: &IsolationSpec,
+    paths: &IsolationPaths,
+) -> HashMap<String, String> {
     let mut out = HashMap::new();
     if spec.spoof_home {
         out.insert("HOME".to_string(), paths.home.to_string_lossy().to_string());
@@ -185,10 +195,12 @@ mod tests {
             spoof_home: true,
             home_subdirs: &[],
             static_envs: &[],
-            seed_files: &[(
-                "{home}/.codex/config.toml",
-                "home={home}\nanalytics_enabled = false\n",
-            )],
+            seed_files: &[crate::runtimes::types::SeedFile {
+                path: "{home}/.codex/config.toml",
+                content: "home={home}\nanalytics_enabled = false\n",
+                overwrite: false,
+                mode: None,
+            }],
             caveat: None,
         };
         seed_files(&spec, &p).unwrap();
@@ -202,6 +214,38 @@ mod tests {
         seed_files(&spec, &p).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "USER_EDIT");
 
+        let _ = fs::remove_dir_all(&p.base);
+    }
+
+    #[test]
+    fn seed_files_can_overwrite_and_chmod() {
+        let p = tmp_paths("seed-overwrite");
+        let _ = fs::remove_dir_all(&p.base);
+        fs::create_dir_all(&p.state).unwrap();
+        let spec = IsolationSpec {
+            subdir: "test",
+            spoof_home: true,
+            home_subdirs: &[],
+            static_envs: &[],
+            seed_files: &[crate::runtimes::types::SeedFile {
+                path: "{state}/apikey.sh",
+                content: "#!/bin/sh\nexec hm secret get claude-api-key\n",
+                overwrite: true,
+                mode: Some(0o700),
+            }],
+            caveat: None,
+        };
+        let path = p.state.join("apikey.sh");
+        fs::write(&path, "OLD").unwrap();
+        seed_files(&spec, &p).unwrap();
+        assert!(fs::read_to_string(&path)
+            .unwrap()
+            .contains("claude-api-key"));
+        #[cfg(unix)]
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
         let _ = fs::remove_dir_all(&p.base);
     }
 

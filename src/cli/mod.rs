@@ -29,6 +29,12 @@ pub enum Commands {
         action: InjectAction,
     },
 
+    /// Manage hm's local secret store
+    Secret {
+        #[command(subcommand)]
+        action: SecretAction,
+    },
+
     /// Launch a runtime with profile injection
     Use {
         /// Runtime to launch (claude, codex, opencode, pi)
@@ -42,6 +48,10 @@ pub enum Commands {
         /// Filesystem side-effects (isolation tree, seed files) still run.
         #[arg(long)]
         print_env: bool,
+
+        /// For Claude only: allow OAuth/Keychain mode instead of apiKeyHelper isolation.
+        #[arg(long)]
+        allow_keychain: bool,
 
         /// Extra arguments to pass to the runtime
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -91,5 +101,29 @@ pub enum InjectAction {
     Reset {
         /// Runtime or "all"
         target: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SecretAction {
+    /// Store a secret from stdin
+    Set {
+        /// Secret name (for Claude default: claude-api-key)
+        name: String,
+    },
+
+    /// Print a secret to stdout
+    Get {
+        /// Secret name
+        name: String,
+    },
+
+    /// List secret names (never values)
+    List,
+
+    /// Remove a secret
+    Rm {
+        /// Secret name
+        name: String,
     },
 }

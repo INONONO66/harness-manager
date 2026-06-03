@@ -9,7 +9,7 @@ mod runtimes;
 mod secrets;
 
 use clap::Parser;
-use cli::{AuthAction, Cli, Commands, InjectAction};
+use cli::{AuthAction, Cli, Commands, InjectAction, SecretAction};
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -44,13 +44,35 @@ fn main() -> anyhow::Result<()> {
             }
         },
 
+        Commands::Secret { action } => match action {
+            SecretAction::Set { name } => {
+                secrets::run_secret_set(&name)?;
+            }
+            SecretAction::Get { name } => {
+                secrets::run_secret_get(&name)?;
+            }
+            SecretAction::List => {
+                secrets::run_secret_list()?;
+            }
+            SecretAction::Rm { name } => {
+                secrets::run_secret_rm(&name)?;
+            }
+        },
+
         Commands::Use {
             runtime,
             profile,
             print_env,
+            allow_keychain,
             args,
         } => {
-            launch::run_use(&runtime, profile.as_deref(), print_env, &args)?;
+            launch::run_use(
+                &runtime,
+                profile.as_deref(),
+                print_env,
+                allow_keychain,
+                &args,
+            )?;
         }
     }
 

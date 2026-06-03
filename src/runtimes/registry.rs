@@ -1,24 +1,92 @@
 use super::types::*;
 
 // ---------------------------------------------------------------------------
-// Isolation specs (Phase 1: Codex / OpenCode / Pi).
-// Claude is Phase 2 (apiKeyHelper + --allow-keychain mode).
+// Isolation specs.
 // ---------------------------------------------------------------------------
+
+static CLAUDE_ISOLATION: IsolationSpec = IsolationSpec {
+    subdir: "claude",
+    spoof_home: true,
+    home_subdirs: &[".claude"],
+    static_envs: &[
+        ("CLAUDE_CONFIG_DIR", "{home}/.claude"),
+        ("CLAUDE_CODE_TMPDIR", "{tmp}"),
+        ("CLAUDE_CODE_DEBUG_LOGS_DIR", "{state}/logs"),
+        ("DISABLE_UPDATES", "1"),
+        ("DISABLE_AUTOUPDATER", "1"),
+        ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
+        (
+            "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
+            "1",
+        ),
+        ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"),
+        ("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "1"),
+        ("DISABLE_LOGIN_COMMAND", "1"),
+    ],
+    seed_files: &[
+        SeedFile {
+            path: "{home}/.claude/settings.json",
+            content: concat!(
+                "{\n",
+                "  \"apiKeyHelper\": \"{state}/apikey.sh\",\n",
+                "  \"permissions\": { \"defaultMode\": \"ask\" }\n",
+                "}\n",
+            ),
+            overwrite: false,
+            mode: None,
+        },
+        SeedFile {
+            path: "{state}/apikey.sh",
+            content: "#!/bin/sh\nexec hm secret get claude-api-key\n",
+            overwrite: true,
+            mode: Some(0o700),
+        },
+    ],
+    caveat: Some(
+        "Claude default mode uses apiKeyHelper and disables /login to avoid macOS Keychain. Run `printf '%s' '<key>' | hm secret set claude-api-key` before first use, or pass --allow-keychain for OAuth mode.",
+    ),
+};
+
+pub static CLAUDE_KEYCHAIN_ISOLATION: IsolationSpec = IsolationSpec {
+    subdir: "claude-keychain",
+    spoof_home: true,
+    home_subdirs: &[".claude"],
+    static_envs: &[
+        ("CLAUDE_CONFIG_DIR", "{home}/.claude"),
+        ("CLAUDE_CODE_TMPDIR", "{tmp}"),
+        ("CLAUDE_CODE_DEBUG_LOGS_DIR", "{state}/logs"),
+        ("DISABLE_UPDATES", "1"),
+        ("DISABLE_AUTOUPDATER", "1"),
+        ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
+        (
+            "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
+            "1",
+        ),
+        ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"),
+        ("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "1"),
+    ],
+    seed_files: &[],
+    caveat: Some(
+        "Claude --allow-keychain mode permits OAuth and may read/write macOS Keychain entry 'Claude Code-credentials'. Use only when you explicitly want Claude subscription login.",
+    ),
+};
 
 static CODEX_ISOLATION: IsolationSpec = IsolationSpec {
     subdir: "codex",
     spoof_home: true,
     home_subdirs: &[".codex"],
     static_envs: &[("CODEX_HOME", "{home}/.codex")],
-    seed_files: &[(
-        "{home}/.codex/config.toml",
-        concat!(
+    seed_files: &[SeedFile {
+        path: "{home}/.codex/config.toml",
+        content: concat!(
             "analytics_enabled = false\n",
             "check_for_update_on_startup = false\n",
             "cli_auth_credentials_store = \"file\"\n",
             "mcp_oauth_credentials_store = \"file\"\n",
         ),
-    )],
+        overwrite: false,
+        mode: None,
+    }],
     caveat: None,
 };
 
@@ -122,7 +190,7 @@ pub static RUNTIMES: &[RuntimeSpec] = &[
             },
         ],
         injection: Some(&CLAUDE_INJECTION),
-        isolation: None,
+        isolation: Some(&CLAUDE_ISOLATION),
     },
     RuntimeSpec {
         name: "Codex CLI",
@@ -200,7 +268,10 @@ mod tests {
 
     #[test]
     fn pi_env_var_is_not_empty() {
-        let pi = RUNTIMES.iter().find(|r| r.name == "Pi").expect("Pi runtime");
+        let pi = RUNTIMES
+            .iter()
+            .find(|r| r.name == "Pi")
+            .expect("Pi runtime");
         match &pi.config_locator {
             ConfigLocator::EnvOrHome { env_var, .. } => {
                 assert_eq!(*env_var, "PI_CODING_AGENT_DIR");
@@ -225,15 +296,21 @@ mod tests {
     }
 
     #[test]
-    fn claude_has_no_isolation_in_phase_1() {
+    fn claude_has_default_isolation_in_phase_2() {
         let c = RUNTIMES
             .iter()
             .find(|r| r.name == "Claude Code")
             .expect("Claude Code runtime");
-        assert!(
-            c.isolation.is_none(),
-            "Claude isolation is deferred to Phase 2"
-        );
+        let iso = c.isolation.expect("Claude isolation set");
+        assert_eq!(iso.subdir, "claude");
+        assert!(iso
+            .static_envs
+            .iter()
+            .any(|(k, _)| *k == "DISABLE_LOGIN_COMMAND"));
+        assert!(iso
+            .seed_files
+            .iter()
+            .any(|s| s.path.ends_with("apikey.sh") && s.overwrite && s.mode == Some(0o700)));
     }
 
     #[test]
@@ -245,8 +322,11 @@ mod tests {
         let iso = codex.isolation.expect("isolation set");
         assert_eq!(iso.subdir, "codex");
         assert!(iso.spoof_home);
-        assert!(iso.seed_files.iter().any(|(p, c)| p.contains("config.toml")
-            && c.contains("analytics_enabled = false")));
+        assert!(iso
+            .seed_files
+            .iter()
+            .any(|s| s.path.contains("config.toml")
+                && s.content.contains("analytics_enabled = false")));
     }
 
     #[test]

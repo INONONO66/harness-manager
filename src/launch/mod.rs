@@ -7,7 +7,7 @@ use colored::Colorize;
 
 use crate::config;
 use crate::isolation;
-use crate::runtimes::registry::RUNTIMES;
+use crate::runtimes::registry::{CLAUDE_KEYCHAIN_ISOLATION, RUNTIMES};
 use crate::runtimes::types::RuntimeSpec;
 
 const GLOBAL_AI_STRIP: &[&str] = &[
@@ -36,6 +36,7 @@ pub fn run_use(
     runtime: &str,
     profile_name: Option<&str>,
     print_env: bool,
+    allow_keychain: bool,
     extra_args: &[String],
 ) -> anyhow::Result<()> {
     let spec = find_runtime_spec(runtime).ok_or_else(|| {
@@ -45,7 +46,17 @@ pub fn run_use(
         )
     })?;
 
-    let iso_setup = if let Some(iso) = spec.isolation {
+    if allow_keychain && spec.name != "Claude Code" {
+        bail!("--allow-keychain is only supported for Claude Code");
+    }
+
+    let effective_isolation = if allow_keychain && spec.name == "Claude Code" {
+        Some(&CLAUDE_KEYCHAIN_ISOLATION)
+    } else {
+        spec.isolation
+    };
+
+    let iso_setup = if let Some(iso) = effective_isolation {
         let paths = isolation::IsolationPaths::from_spec(iso);
         isolation::ensure_isolation_tree(iso, &paths)?;
         isolation::seed_files(iso, &paths)?;

@@ -155,9 +155,16 @@ pub struct IsolationSpec {
     pub home_subdirs: &'static [&'static str],
     /// Environment variables to set (key, value-template). Value is token-substituted.
     pub static_envs: &'static [(&'static str, &'static str)],
-    /// Config files to seed (path-template, content-template). Both are token-substituted.
-    /// Policy: create-if-missing (Phase 1). User edits are preserved across launches.
-    pub seed_files: &'static [(&'static str, &'static str)],
+    /// Config files/scripts to seed. Path and content are token-substituted.
+    pub seed_files: &'static [SeedFile],
     /// Optional user-facing warning printed to stderr at launch (e.g. Claude Keychain note).
     pub caveat: Option<&'static str>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SeedFile {
+    pub path: &'static str,
+    pub content: &'static str,
+    pub overwrite: bool,
+    pub mode: Option<u32>,
 }
