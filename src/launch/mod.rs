@@ -66,13 +66,13 @@ pub fn run_use(
         for var in GLOBAL_AI_STRIP {
             env.remove(*var);
         }
-        if let Some(ref injection) = spec.injection {
+        if let Some(injection) = spec.injection {
             for var in injection.strip_envs {
                 env.remove(*var);
             }
         }
 
-        if let Some(ref injection) = spec.injection {
+        if let Some(injection) = spec.injection {
             if let Some(ref endpoint) = resolved.endpoint {
                 let effective_endpoint = if injection.endpoint_strip_v1 {
                     endpoint

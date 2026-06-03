@@ -79,7 +79,7 @@ fn probe_json_file(
     }
 
     if !existence_field.is_empty() {
-        if json.get(existence_field).is_some() || json.get(&to_camel(existence_field)).is_some() {
+        if json.get(existence_field).is_some() || json.get(to_camel(existence_field)).is_some() {
             return Some(AuthStatus::Valid {
                 detail: label.to_string(),
             });
@@ -109,7 +109,7 @@ fn probe_oauth_file(
 
     let token = json
         .get(token_field)
-        .or_else(|| json.get(&to_camel(token_field)))
+        .or_else(|| json.get(to_camel(token_field)))
         .and_then(|v| v.as_str())?;
 
     Some(token_to_auth_status(token, label))
@@ -134,7 +134,7 @@ fn probe_nested_oauth(
     for segment in path {
         current = current
             .get(segment)
-            .or_else(|| current.get(&to_camel(segment)))?;
+            .or_else(|| current.get(to_camel(segment)))?;
     }
 
     let token = current.as_str()?;

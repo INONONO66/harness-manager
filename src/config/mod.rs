@@ -115,12 +115,3 @@ pub fn resolve_profile(config: &HmConfig, name: Option<&str>) -> anyhow::Result<
 
     Ok(resolved)
 }
-
-pub fn config_file_path() -> Option<PathBuf> {
-    let p = config_path();
-    if p.is_file() {
-        Some(p)
-    } else {
-        None
-    }
-}

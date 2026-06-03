@@ -11,8 +11,8 @@ pub struct DetectedRuntime {
     pub auth_sources: Vec<AuthStatus>,
 }
 
-/// Overall auth status for display.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum AuthStatus {
     Valid { detail: String },
     ExpiresSoon { detail: String },
@@ -69,6 +69,7 @@ pub enum ConfigLocator {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum AuthProbe {
     EnvKeys {
         vars: &'static [&'static str],
@@ -119,6 +120,7 @@ pub struct RuntimeSpec {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct InjectionSpec {
     pub endpoint_env: &'static str,
     pub api_key_env: &'static str,
