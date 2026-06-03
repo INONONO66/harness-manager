@@ -1,0 +1,56 @@
+mod auth;
+mod cli;
+mod config;
+mod detect;
+mod inject;
+mod launch;
+mod runtimes;
+mod secrets;
+
+use clap::Parser;
+use cli::{AuthAction, Cli, Commands, InjectAction};
+
+fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Detect => {
+            detect::run_detect()?;
+        }
+
+        Commands::Auth { action } => match action {
+            AuthAction::Status => {
+                auth::run_auth_status()?;
+            }
+            AuthAction::Login { runtime } => {
+                auth::login::run_auth_login(&runtime)?;
+            }
+        },
+
+        Commands::Inject { action } => match action {
+            InjectAction::Plan { target, profile } => {
+                inject::run_inject_plan(&target, &profile)?;
+            }
+            InjectAction::Apply {
+                target,
+                profile,
+                persist,
+            } => {
+                inject::run_inject_apply(&target, &profile, persist)?;
+            }
+            InjectAction::Reset { target } => {
+                inject::run_inject_reset(&target)?;
+            }
+        },
+
+        Commands::Use {
+            runtime,
+            profile,
+            args,
+        } => {
+            launch::run_use(&runtime, profile.as_deref(), &args)?;
+        }
+    }
+
+    Ok(())
+}
