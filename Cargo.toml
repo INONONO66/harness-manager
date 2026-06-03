@@ -1,0 +1,21 @@
+[package]
+name = "harness-manager"
+version = "0.1.0"
+edition = "2021"
+description = "Agent Runtime Manager — detect, manage, and launch AI coding agent runtimes from one place"
+license = "MIT"
+
+[[bin]]
+name = "hm"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+colored = "2"
+comfy-table = "7"
+dirs = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml_edit = { version = "0.22", features = ["serde"] }
+which = "7"
