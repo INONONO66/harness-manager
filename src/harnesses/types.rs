@@ -33,6 +33,14 @@ pub struct HarnessSpec {
 pub enum PackageSpec {
     /// Installed via `npm install -g <package>`.
     NpmGlobal { package: &'static str },
+    NpxInstaller {
+        package: &'static str,
+        args: &'static [&'static str],
+    },
+    BunxInstaller {
+        package: &'static str,
+        args: &'static [&'static str],
+    },
     /// Installed via a Python tool installer (uv tool / pipx / pip --user).
     PythonTool { package: &'static str },
     /// Manual install — show instructions to the user.

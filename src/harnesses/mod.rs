@@ -1,5 +1,6 @@
 pub mod detect;
 pub mod install;
+mod package;
 pub mod registry;
 pub mod types;
 

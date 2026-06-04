@@ -44,20 +44,30 @@ pub struct ResolvedProfile {
     pub bearer: Option<String>,
 }
 
-fn config_path() -> PathBuf {
+fn config_path_from(xdg_config_home: Option<&PathBuf>, home: Option<&PathBuf>) -> PathBuf {
+    if let Some(config_dir) = xdg_config_home {
+        let p = config_dir.join("hm").join("config.toml");
+        return p;
+    }
     if let Some(config_dir) = dirs::config_dir() {
         let p = config_dir.join("hm").join("config.toml");
         if p.is_file() {
             return p;
         }
     }
-    if let Some(home) = dirs::home_dir() {
+    if let Some(home) = home {
         let p = home.join(".config").join("hm").join("config.toml");
         if p.is_file() {
             return p;
         }
     }
     PathBuf::from("~/.config/hm/config.toml")
+}
+
+fn config_path() -> PathBuf {
+    let xdg_config_home = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
+    let home = dirs::home_dir();
+    config_path_from(xdg_config_home.as_ref(), home.as_ref())
 }
 
 pub fn load_config() -> anyhow::Result<HmConfig> {
@@ -114,4 +124,39 @@ pub fn resolve_profile(config: &HmConfig, name: Option<&str>) -> anyhow::Result<
     }
 
     Ok(resolved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_path_honors_xdg_config_home() {
+        let base = std::env::temp_dir().join(format!("hm-config-test-{}", std::process::id()));
+        let config_dir = base.join("xdg-config");
+        let path = config_dir.join("hm/config.toml");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "default_profile = \"proxy\"\n").unwrap();
+
+        let resolved = config_path_from(Some(&config_dir), None);
+
+        assert_eq!(resolved, path);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn config_path_does_not_fallback_when_xdg_config_home_is_explicit() {
+        let base =
+            std::env::temp_dir().join(format!("hm-config-test-missing-{}", std::process::id()));
+        let config_dir = base.join("xdg-config");
+        let home = base.join("home");
+        let home_path = home.join(".config/hm/config.toml");
+        std::fs::create_dir_all(home_path.parent().unwrap()).unwrap();
+        std::fs::write(&home_path, "default_profile = \"real\"\n").unwrap();
+
+        let resolved = config_path_from(Some(&config_dir), Some(&home));
+
+        assert_eq!(resolved, config_dir.join("hm/config.toml"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

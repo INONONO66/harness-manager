@@ -87,7 +87,12 @@ pub static HARNESSES: &[HarnessSpec] = &[
             subdir: "omx",
             spoof_home: true,
             home_subdirs: &[".codex"],
-            static_envs: &[("CODEX_HOME", "{home}/.codex")],
+            static_envs: &[
+                ("CODEX_HOME", "{home}/.codex"),
+                ("OMX_ROOT", "{home}/.omx"),
+                ("OMX_STATE_ROOT", "{state}/omx"),
+                ("OMX_TEAM_STATE_ROOT", "{state}/omx-team"),
+            ],
             seed_files: &[SeedFile {
                 path: "{home}/.codex/config.toml",
                 content: CODEX_BASE_CONFIG_TOML,
@@ -106,8 +111,9 @@ pub static HARNESSES: &[HarnessSpec] = &[
         id: "omo",
         display_name: "oh-my-openagent",
         target_runtime: "OpenCode",
-        package: PackageSpec::NpmGlobal {
-            package: "oh-my-opencode",
+        package: PackageSpec::BunxInstaller {
+            package: "oh-my-openagent",
+            args: &["install"],
         },
         detect_binaries: &["omo"],
         launch_binary: None,
@@ -125,6 +131,7 @@ pub static HARNESSES: &[HarnessSpec] = &[
                 ("XDG_DATA_HOME", "{home}/.local/share"),
                 ("XDG_CACHE_HOME", "{home}/.cache"),
                 ("XDG_STATE_HOME", "{home}/.local/state"),
+                ("OPENCODE_CONFIG_DIR", "{home}/.config/opencode"),
                 ("OPENCODE_DISABLE_AUTOUPDATE", "1"),
                 ("OPENCODE_DISABLE_PROJECT_CONFIG", "1"),
                 ("OPENCODE_PURE", "1"),
@@ -140,8 +147,9 @@ pub static HARNESSES: &[HarnessSpec] = &[
         id: "lazycodex",
         display_name: "lazycodex",
         target_runtime: "Codex CLI",
-        package: PackageSpec::NpmGlobal {
+        package: PackageSpec::NpxInstaller {
             package: "lazycodex-ai",
+            args: &["install"],
         },
         detect_binaries: &["lazycodex-ai"],
         launch_binary: Some("lazycodex-ai"),
@@ -190,44 +198,5 @@ pub static HARNESSES: &[HarnessSpec] = &[
 ];
 
 #[cfg(test)]
-mod tests {
-    use super::super::find_harness_spec;
-    use super::*;
-    use crate::runtimes::registry::RUNTIMES;
-    use std::collections::HashSet;
-
-    #[test]
-    fn all_ids_unique() {
-        let mut seen: HashSet<&str> = HashSet::new();
-        for h in HARNESSES {
-            assert!(seen.insert(h.id), "duplicate harness id: {}", h.id);
-        }
-    }
-
-    #[test]
-    fn all_target_runtimes_valid() {
-        for h in HARNESSES {
-            assert!(
-                RUNTIMES.iter().any(|r| r.name == h.target_runtime),
-                "harness {} targets unknown runtime {}",
-                h.id,
-                h.target_runtime,
-            );
-        }
-    }
-
-    #[test]
-    fn find_harness_spec_works() {
-        assert!(find_harness_spec("omx").is_some());
-        assert!(
-            find_harness_spec("OMX").is_some(),
-            "lookup is case-insensitive"
-        );
-        assert!(find_harness_spec("nope").is_none());
-    }
-
-    #[test]
-    fn harness_count_is_five() {
-        assert_eq!(HARNESSES.len(), 5);
-    }
-}
+#[path = "registry_tests.rs"]
+mod tests;
