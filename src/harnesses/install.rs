@@ -118,9 +118,7 @@ pub fn remove(id: &str, purge: bool) -> anyhow::Result<()> {
 
     if purge {
         let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
-        if paths.base.exists() {
-            eprintln!("Purging isolation directory: {}", paths.base.display());
-        }
+        eprintln!("Purging isolation directory: {}", paths.base.display());
         isolation::purge_isolation_tree(&paths)?;
     }
 
