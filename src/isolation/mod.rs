@@ -111,6 +111,33 @@ pub fn seed_files(spec: &IsolationSpec, paths: &IsolationPaths) -> Result<()> {
     Ok(())
 }
 
+pub fn purge_isolation_tree(paths: &IsolationPaths) -> Result<()> {
+    let root = isolation_root(paths)?;
+    ensure_under_base(&paths.base, &root, "isolation purge")?;
+    reject_existing_symlink_chain(&paths.base, &root, "isolation purge")?;
+    match fs::symlink_metadata(&paths.base) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            anyhow::bail!(
+                "isolation purge must not traverse symlink {}",
+                paths.base.display()
+            );
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            anyhow::bail!(
+                "isolation purge target is not a directory: {}",
+                paths.base.display()
+            );
+        }
+        Ok(_) => {
+            fs::remove_dir_all(&paths.base)
+                .with_context(|| format!("failed to purge {}", paths.base.display()))?;
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err).with_context(|| format!("inspect {}", paths.base.display())),
+    }
+    Ok(())
+}
+
 fn temp_seed_path(path: &Path) -> Result<PathBuf> {
     let parent = path
         .parent()

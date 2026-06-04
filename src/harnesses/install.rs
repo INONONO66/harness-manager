@@ -1,4 +1,3 @@
-use std::fs;
 use std::process::Command;
 
 use anyhow::{bail, Context};
@@ -118,12 +117,11 @@ pub fn remove(id: &str, purge: bool) -> anyhow::Result<()> {
     }
 
     if purge {
-        let harness_dir = IsolationPaths::try_from_spec(&spec.isolation)?.base;
-        if harness_dir.exists() {
-            eprintln!("Purging isolation directory: {}", harness_dir.display());
-            fs::remove_dir_all(&harness_dir)
-                .with_context(|| format!("failed to purge {}", harness_dir.display()))?;
+        let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
+        if paths.base.exists() {
+            eprintln!("Purging isolation directory: {}", paths.base.display());
         }
+        isolation::purge_isolation_tree(&paths)?;
     }
 
     eprintln!(

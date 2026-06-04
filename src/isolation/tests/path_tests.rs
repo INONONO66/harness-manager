@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::isolation::{ensure_isolation_tree, IsolationPaths};
+use crate::isolation::{ensure_isolation_tree, purge_isolation_tree, IsolationPaths};
 use crate::runtimes::types::IsolationSpec;
 
 use super::tmp_paths;
@@ -114,6 +114,46 @@ fn ensure_tree_rejects_symlinked_runtimes_ancestor() {
     assert!(
         !outside.join("omx").exists(),
         "isolation tree must not be created through ancestor symlink"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn purge_rejects_symlinked_runtimes_ancestor() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "hm-iso-test-purge-runtimes-symlink-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let hm_root = root.join("xdg/hm");
+    let outside = root.join("outside");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&hm_root).unwrap();
+    fs::create_dir_all(outside.join("omx")).unwrap();
+    fs::write(outside.join("omx/sentinel"), "outside").unwrap();
+    symlink(&outside, hm_root.join("runtimes")).unwrap();
+    let p = IsolationPaths {
+        base: hm_root.join("runtimes/omx"),
+        home: hm_root.join("runtimes/omx/home"),
+        state: hm_root.join("runtimes/omx/state"),
+        tmp: hm_root.join("runtimes/omx/tmp"),
+    };
+
+    let result = purge_isolation_tree(&p);
+
+    assert!(
+        result.is_err(),
+        "purge must reject symlinked runtimes ancestor"
+    );
+    assert!(
+        outside.join("omx/sentinel").exists(),
+        "purge must not delete through ancestor symlink"
     );
     let _ = fs::remove_dir_all(&root);
 }
