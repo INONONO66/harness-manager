@@ -2,6 +2,7 @@ mod auth;
 mod cli;
 mod config;
 mod detect;
+mod harnesses;
 mod inject;
 mod isolation;
 mod launch;
@@ -9,7 +10,7 @@ mod runtimes;
 mod secrets;
 
 use clap::Parser;
-use cli::{AuthAction, Cli, Commands, InjectAction, SecretAction};
+use cli::{AuthAction, Cli, Commands, HarnessAction, InjectAction, SecretAction};
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -18,6 +19,22 @@ fn main() -> anyhow::Result<()> {
         Commands::Detect => {
             detect::run_detect()?;
         }
+
+        Commands::Harness { action } => match action {
+            HarnessAction::List => {
+                let detected = harnesses::detect::detect_all();
+                harnesses::detect::render_table(&detected);
+            }
+            HarnessAction::Install { name } => {
+                harnesses::install::install(&name)?;
+            }
+            HarnessAction::Update { name } => {
+                harnesses::install::update(&name)?;
+            }
+            HarnessAction::Remove { name, purge } => {
+                harnesses::install::remove(&name, purge)?;
+            }
+        },
 
         Commands::Auth { action } => match action {
             AuthAction::Status => {
@@ -64,8 +81,10 @@ fn main() -> anyhow::Result<()> {
             profile,
             print_env,
             allow_keychain,
+            harness,
             args,
         } => {
+            let _ = harness;
             launch::run_use(
                 &runtime,
                 profile.as_deref(),
@@ -73,6 +92,22 @@ fn main() -> anyhow::Result<()> {
                 allow_keychain,
                 &args,
             )?;
+        }
+
+        Commands::External(args) => {
+            if args.is_empty() {
+                anyhow::bail!("unexpected empty external subcommand");
+            }
+            // `hm omx` is sugar for `hm use omx -- <rest>`
+            let name = &args[0];
+            if harnesses::find_harness_spec(name).is_none() {
+                anyhow::bail!(
+                    "unknown command: '{}'. Run `hm --help`, `hm detect`, or `hm harness list`.",
+                    name
+                );
+            }
+            let extra: Vec<String> = args[1..].to_vec();
+            launch::run_use(name, None, false, false, &extra)?;
         }
     }
 

@@ -6,9 +6,11 @@ use anyhow::bail;
 use colored::Colorize;
 
 use crate::config;
+use crate::harnesses;
+use crate::harnesses::types::HarnessSpec;
 use crate::isolation;
 use crate::runtimes::registry::{CLAUDE_KEYCHAIN_ISOLATION, RUNTIMES};
-use crate::runtimes::types::RuntimeSpec;
+use crate::runtimes::types::{IsolationSpec, RuntimeSpec};
 
 const GLOBAL_AI_STRIP: &[&str] = &[
     "ANTHROPIC_API_KEY",
@@ -32,30 +34,94 @@ fn find_runtime_spec(name: &str) -> Option<&'static RuntimeSpec> {
         .find(|r| r.name.to_lowercase() == lower || r.binary_names.iter().any(|b| *b == lower))
 }
 
+// ---------------------------------------------------------------------------
+// Target resolution: harness-first, then runtime
+// ---------------------------------------------------------------------------
+
+/// What `hm use <name>` resolved to.
+enum LaunchTarget {
+    /// A plain runtime (existing behavior).
+    Runtime(&'static RuntimeSpec),
+    /// A harness wrapping an underlying runtime.
+    Harness {
+        harness: &'static HarnessSpec,
+        runtime: &'static RuntimeSpec,
+    },
+}
+
+/// Try harnesses first, then runtimes.
+fn resolve_target(name: &str) -> anyhow::Result<LaunchTarget> {
+    if let Some(h) = harnesses::find_harness_spec(name) {
+        let rt = find_runtime_spec(h.target_runtime).ok_or_else(|| {
+            anyhow::anyhow!(
+                "harness '{}' targets runtime '{}', but that runtime is not registered",
+                h.id,
+                h.target_runtime
+            )
+        })?;
+        return Ok(LaunchTarget::Harness {
+            harness: h,
+            runtime: rt,
+        });
+    }
+    if let Some(rt) = find_runtime_spec(name) {
+        return Ok(LaunchTarget::Runtime(rt));
+    }
+    bail!(
+        "unknown target: '{}'. Run `hm detect` or `hm harness list` to see available targets.",
+        name
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Public entry point
+// ---------------------------------------------------------------------------
+
 pub fn run_use(
-    runtime: &str,
+    target_name: &str,
     profile_name: Option<&str>,
     print_env: bool,
     allow_keychain: bool,
     extra_args: &[String],
 ) -> anyhow::Result<()> {
-    let spec = find_runtime_spec(runtime).ok_or_else(|| {
-        anyhow::anyhow!(
-            "unknown runtime: '{}'. Run `hm detect` to see available runtimes.",
-            runtime
-        )
-    })?;
+    let target = resolve_target(target_name)?;
 
-    if allow_keychain && spec.name != "Claude Code" {
-        bail!("--allow-keychain is only supported for Claude Code");
-    }
-
-    let effective_isolation = if allow_keychain && spec.name == "Claude Code" {
-        Some(&CLAUDE_KEYCHAIN_ISOLATION)
-    } else {
-        spec.isolation
+    // Destructure into the pieces we need regardless of variant.
+    let (spec, effective_isolation, binary_names, display_name): (
+        &RuntimeSpec,
+        Option<&IsolationSpec>,
+        &[&str],
+        String,
+    ) = match &target {
+        LaunchTarget::Runtime(rt) => {
+            let iso = if allow_keychain && rt.name == "Claude Code" {
+                Some(&CLAUDE_KEYCHAIN_ISOLATION as &IsolationSpec)
+            } else {
+                rt.isolation
+            };
+            (rt, iso, rt.binary_names, rt.name.to_string())
+        }
+        LaunchTarget::Harness { harness, runtime } => {
+            if allow_keychain {
+                bail!("--allow-keychain is not supported for harness launches");
+            }
+            // Harness always has isolation. The launch binary is either the
+            // harness's own wrapper or the underlying runtime's binary.
+            let bins: &[&str] = match &harness.launch_binary {
+                Some(bin) => std::slice::from_ref(bin),
+                None => runtime.binary_names,
+            };
+            let name = format!("{} ({})", harness.display_name, runtime.name);
+            (
+                *runtime,
+                Some(&harness.isolation as &IsolationSpec),
+                bins,
+                name,
+            )
+        }
     };
 
+    // --- Isolation setup ---------------------------------------------------
     let iso_setup = if let Some(iso) = effective_isolation {
         let paths = isolation::IsolationPaths::from_spec(iso);
         isolation::ensure_isolation_tree(iso, &paths)?;
@@ -65,6 +131,7 @@ pub fn run_use(
         None
     };
 
+    // --- Env: start from inherited, then strip + inject --------------------
     let mut env: HashMap<String, String> = std::env::vars().collect();
 
     for var in GLOBAL_AI_STRIP {
@@ -85,6 +152,7 @@ pub fn run_use(
         }
     }
 
+    // --- Profile injection (endpoint, bearer, proxy) -----------------------
     let profile_applied = if let Some(profile_arg) = profile_name {
         let hm_config = config::load_config()?;
         let resolved = config::resolve_profile(&hm_config, Some(profile_arg))?;
@@ -93,7 +161,7 @@ pub fn run_use(
             eprintln!(
                 "{} {} with profile '{}'",
                 "Launching".green().bold(),
-                spec.name.bold(),
+                display_name.bold(),
                 resolved.name.cyan()
             );
         }
@@ -132,6 +200,7 @@ pub fn run_use(
         false
     };
 
+    // --- print-env exit path -----------------------------------------------
     if print_env {
         let mut keys: Vec<&String> = env.keys().collect();
         keys.sort();
@@ -141,8 +210,12 @@ pub fn run_use(
         return Ok(());
     }
 
-    let binary = crate::runtimes::find_binary(spec.binary_names).ok_or_else(|| {
-        anyhow::anyhow!("{} is not installed (binary not found in PATH)", spec.name)
+    // --- Resolve binary and exec -------------------------------------------
+    let binary = crate::runtimes::find_binary(binary_names).ok_or_else(|| {
+        anyhow::anyhow!(
+            "{} is not installed (binary not found in PATH)",
+            display_name
+        )
     })?;
 
     if !profile_applied {
@@ -154,7 +227,7 @@ pub fn run_use(
         eprintln!(
             "{} {} {}",
             "Launching".green().bold(),
-            spec.name.bold(),
+            display_name.bold(),
             suffix
         );
     }
@@ -167,4 +240,70 @@ pub fn run_use(
     }
     let err = cmd.exec();
     bail!("failed to exec {}: {}", binary.display(), err);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_target_runtime() {
+        match resolve_target("codex").unwrap() {
+            LaunchTarget::Runtime(rt) => assert_eq!(rt.name, "Codex CLI"),
+            _ => panic!("expected Runtime"),
+        }
+    }
+
+    #[test]
+    fn resolve_target_runtime_by_name() {
+        match resolve_target("Codex CLI").unwrap() {
+            LaunchTarget::Runtime(rt) => assert_eq!(rt.name, "Codex CLI"),
+            _ => panic!("expected Runtime"),
+        }
+    }
+
+    #[test]
+    fn resolve_target_harness() {
+        match resolve_target("omx").unwrap() {
+            LaunchTarget::Harness { harness, runtime } => {
+                assert_eq!(harness.id, "omx");
+                assert_eq!(runtime.name, "Codex CLI");
+            }
+            _ => panic!("expected Harness"),
+        }
+    }
+
+    #[test]
+    fn resolve_target_harness_case_insensitive() {
+        match resolve_target("OMX").unwrap() {
+            LaunchTarget::Harness { harness, .. } => assert_eq!(harness.id, "omx"),
+            _ => panic!("expected Harness"),
+        }
+    }
+
+    #[test]
+    fn resolve_target_unknown() {
+        assert!(resolve_target("nonexistent-xyz").is_err());
+    }
+
+    #[test]
+    fn resolve_target_omc_targets_claude() {
+        match resolve_target("omc").unwrap() {
+            LaunchTarget::Harness { harness, runtime } => {
+                assert_eq!(harness.id, "omc");
+                assert_eq!(runtime.name, "Claude Code");
+            }
+            _ => panic!("expected Harness"),
+        }
+    }
+
+    #[test]
+    fn resolve_target_lazycodex_has_wrapper() {
+        match resolve_target("lazycodex").unwrap() {
+            LaunchTarget::Harness { harness, .. } => {
+                assert_eq!(harness.launch_binary, Some("lazycodex-ai"));
+            }
+            _ => panic!("expected Harness"),
+        }
+    }
 }

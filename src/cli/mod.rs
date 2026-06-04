@@ -17,6 +17,12 @@ pub enum Commands {
     /// Detect installed agent runtimes
     Detect,
 
+    /// Manage harness installations (install, update, remove, list)
+    Harness {
+        #[command(subcommand)]
+        action: HarnessAction,
+    },
+
     /// Manage authentication across runtimes
     Auth {
         #[command(subcommand)]
@@ -53,10 +59,18 @@ pub enum Commands {
         #[arg(long)]
         allow_keychain: bool,
 
+        /// Treat the runtime argument as a harness identifier.
+        #[arg(long)]
+        harness: bool,
+
         /// Extra arguments to pass to the runtime
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+
+    /// External subcommand: matches harness IDs like `hm omx`, `hm omc`
+    #[command(external_subcommand)]
+    External(Vec<String>),
 }
 
 #[derive(Subcommand)]
@@ -125,5 +139,30 @@ pub enum SecretAction {
     Rm {
         /// Secret name
         name: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum HarnessAction {
+    /// List available harnesses and their install status
+    List,
+    /// Install a harness
+    Install {
+        /// Harness name (omc, omx, omo, lazycodex, ouroboros)
+        name: String,
+    },
+    /// Update an installed harness
+    Update {
+        /// Harness name
+        name: String,
+    },
+    /// Remove an installed harness
+    Remove {
+        /// Harness name
+        name: String,
+
+        /// Also delete the harness isolation directory ($HM/runtimes/<id>/)
+        #[arg(long)]
+        purge: bool,
     },
 }

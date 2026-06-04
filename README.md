@@ -104,6 +104,43 @@ hm use codex --profile proxy -- --model gpt-5.5
 hm use claude --profile proxy -- --model claude-sonnet-4-20250514
 ```
 
+## Harnesses
+
+Harnesses are wrapper/extension tools that sit on top of runtimes (oh-my-codex, oh-my-claudecode, ouroboros, etc.). Each harness gets its own isolated `$HOME` so it never pollutes the base runtime's config.
+
+```bash
+# List available harnesses and their install status
+hm harness list
+
+# Install / update / remove
+hm harness install omx
+hm harness update omx
+hm harness remove omx          # keeps isolation data
+hm harness remove omx --purge  # also deletes $HM/runtimes/omx/
+
+# Launch a harness (creates isolated HOME, seeds config, execs runtime)
+hm use omx                     # Codex CLI with oh-my-codex isolation
+hm use omc                     # Claude Code with oh-my-claudecode isolation
+hm use ouroboros               # Codex CLI with ouroboros isolation
+
+# Shorthand sugar (same as `hm use <harness>`)
+hm omx
+hm omc
+
+# Profile injection works with harnesses too
+hm use omx --profile proxy
+```
+
+| Harness | Target Runtime | Package | CLI |
+|---|---|---|---|
+| omc | Claude Code | `npm i -g oh-my-claude-sisyphus` | `omc` |
+| omx | Codex CLI | `npm i -g oh-my-codex` | `omx` |
+| omo | OpenCode | `npm i -g oh-my-opencode` | `omo` |
+| lazycodex | Codex CLI | `npm i -g lazycodex-ai` | `lazycodex-ai` |
+| ouroboros | Codex CLI | `uv tool install ouroboros-ai` | `ouroboros` |
+
+Each harness runs in `$HM/runtimes/<harness-id>/home` — completely separate from both the real user config and the base runtime's isolation tree.
+
 ## Configuration
 
 Create `~/.config/hm/config.toml`:
