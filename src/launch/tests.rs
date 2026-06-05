@@ -1,9 +1,38 @@
 use super::*;
 use std::collections::HashMap;
 
+fn plugin_registry() -> crate::harnesses::registry::HarnessRegistry {
+    crate::harnesses::registry::HarnessRegistry::from_sources(&[
+        crate::harnesses::registry::HarnessSource::manifest(
+            "launch-plugin.toml",
+            r#"
+schema_version = 1
+id = "launch-plugin"
+display_name = "Launch Plugin"
+target_runtime = "Codex CLI"
+detect_binaries = ["launch-plugin-bin"]
+launch_binary = "plugin-wrapper"
+launch_args = ["--plugin-mode"]
+
+[package]
+kind = "manual"
+instructions = "manual"
+
+[isolation]
+spoof_home = true
+home_subdirs = [".codex"]
+static_envs = { CODEX_HOME = "{home}/.codex" }
+seed_files = []
+"#,
+        ),
+    ])
+    .unwrap()
+}
+
 #[test]
 fn resolve_target_runtime() {
-    match resolve_target("codex").unwrap() {
+    let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
+    match resolve_target("codex", &registry).unwrap() {
         LaunchTarget::Runtime(rt) => assert_eq!(rt.name, "Codex CLI"),
         _ => panic!("expected Runtime"),
     }
@@ -11,7 +40,8 @@ fn resolve_target_runtime() {
 
 #[test]
 fn resolve_target_runtime_by_name() {
-    match resolve_target("Codex CLI").unwrap() {
+    let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
+    match resolve_target("Codex CLI", &registry).unwrap() {
         LaunchTarget::Runtime(rt) => assert_eq!(rt.name, "Codex CLI"),
         _ => panic!("expected Runtime"),
     }
@@ -19,9 +49,10 @@ fn resolve_target_runtime_by_name() {
 
 #[test]
 fn resolve_target_harness() {
-    match resolve_target("omx").unwrap() {
+    let registry = plugin_registry();
+    match resolve_target("launch-plugin", &registry).unwrap() {
         LaunchTarget::Harness { harness, runtime } => {
-            assert_eq!(harness.id, "omx");
+            assert_eq!(harness.id, "launch-plugin");
             assert_eq!(runtime.name, "Codex CLI");
         }
         _ => panic!("expected Harness"),
@@ -30,33 +61,25 @@ fn resolve_target_harness() {
 
 #[test]
 fn resolve_target_harness_case_insensitive() {
-    match resolve_target("OMX").unwrap() {
-        LaunchTarget::Harness { harness, .. } => assert_eq!(harness.id, "omx"),
+    let registry = plugin_registry();
+    match resolve_target("LAUNCH-PLUGIN", &registry).unwrap() {
+        LaunchTarget::Harness { harness, .. } => assert_eq!(harness.id, "launch-plugin"),
         _ => panic!("expected Harness"),
     }
 }
 
 #[test]
 fn resolve_target_unknown() {
-    assert!(resolve_target("nonexistent-xyz").is_err());
+    let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
+    assert!(resolve_target("nonexistent-xyz", &registry).is_err());
 }
 
 #[test]
-fn resolve_target_omc_targets_claude() {
-    match resolve_target("omc").unwrap() {
-        LaunchTarget::Harness { harness, runtime } => {
-            assert_eq!(harness.id, "omc");
-            assert_eq!(runtime.name, "Claude Code");
-        }
-        _ => panic!("expected Harness"),
-    }
-}
-
-#[test]
-fn resolve_target_lazycodex_has_wrapper() {
-    match resolve_target("lazycodex").unwrap() {
+fn resolve_target_plugin_harness_has_wrapper() {
+    let registry = plugin_registry();
+    match resolve_target("launch-plugin", &registry).unwrap() {
         LaunchTarget::Harness { harness, .. } => {
-            assert_eq!(harness.launch_binary, Some("lazycodex-ai"));
+            assert_eq!(harness.launch_binary.as_deref(), Some("plugin-wrapper"));
         }
         _ => panic!("expected Harness"),
     }
@@ -64,7 +87,8 @@ fn resolve_target_lazycodex_has_wrapper() {
 
 #[test]
 fn runtime_isolation_rejects_allow_keychain_for_non_claude() {
-    let target = match resolve_target("codex").unwrap() {
+    let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
+    let target = match resolve_target("codex", &registry).unwrap() {
         LaunchTarget::Runtime(runtime) => runtime,
         _ => panic!("expected Runtime"),
     };
@@ -80,15 +104,16 @@ fn runtime_isolation_rejects_allow_keychain_for_non_claude() {
 
 #[test]
 fn isolated_launch_env_uses_allowlist_and_strips_arbitrary_host_secrets() {
-    let target = match resolve_target("omx").unwrap() {
+    let registry = plugin_registry();
+    let target = match resolve_target("launch-plugin", &registry).unwrap() {
         LaunchTarget::Harness { harness, runtime } => (harness, runtime),
         _ => panic!("expected Harness"),
     };
     let paths = isolation::IsolationPaths {
-        base: std::env::temp_dir().join("hm-launch-env-test/runtimes/omx"),
-        home: std::env::temp_dir().join("hm-launch-env-test/runtimes/omx/home"),
-        state: std::env::temp_dir().join("hm-launch-env-test/runtimes/omx/state"),
-        tmp: std::env::temp_dir().join("hm-launch-env-test/runtimes/omx/tmp"),
+        base: std::env::temp_dir().join("hm-launch-env-test/runtimes/launch-plugin"),
+        home: std::env::temp_dir().join("hm-launch-env-test/runtimes/launch-plugin/home"),
+        state: std::env::temp_dir().join("hm-launch-env-test/runtimes/launch-plugin/state"),
+        tmp: std::env::temp_dir().join("hm-launch-env-test/runtimes/launch-plugin/tmp"),
     };
     let inherited = HashMap::from([
         ("PATH".to_string(), "/bin".to_string()),
@@ -114,4 +139,19 @@ fn isolated_launch_env_uses_allowlist_and_strips_arbitrary_host_secrets() {
     assert!(!env.contains_key("SSH_AUTH_SOCK"));
     assert!(!env.contains_key("GOOGLE_GENERATIVE_AI_API_KEY"));
     assert!(!env.contains_key("OPENROUTER_API_KEY"));
+}
+
+#[test]
+fn resolve_target_accepts_plugin_registry_entries() {
+    let registry = plugin_registry();
+
+    match resolve_target("launch-plugin", &registry).unwrap() {
+        LaunchTarget::Harness { harness, runtime } => {
+            assert_eq!(harness.display_name, "Launch Plugin");
+            assert_eq!(harness.launch_binary.as_deref(), Some("plugin-wrapper"));
+            assert_eq!(harness.launch_args, ["--plugin-mode"]);
+            assert_eq!(runtime.name, "Codex CLI");
+        }
+        _ => panic!("expected Harness"),
+    }
 }

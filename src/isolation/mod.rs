@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use crate::runtimes::types::IsolationSpec;
+use spec::IsolationRecipe;
 
 mod env;
 mod paths;
@@ -53,9 +53,9 @@ pub struct IsolationPaths {
 }
 
 impl IsolationPaths {
-    pub fn try_from_spec(spec: &IsolationSpec) -> Result<Self> {
-        validate_relative_path(spec.subdir, "isolation subdir")?;
-        let base = hm_data_dir().join("runtimes").join(spec.subdir);
+    pub fn try_from_spec(spec: &(impl IsolationRecipe + ?Sized)) -> Result<Self> {
+        validate_relative_path(spec.subdir(), "isolation subdir")?;
+        let base = hm_data_dir().join("runtimes").join(spec.subdir());
         Ok(Self {
             home: base.join("home"),
             state: base.join("state"),
@@ -75,13 +75,16 @@ pub fn subst_tokens(template: &str, paths: &IsolationPaths) -> String {
 }
 
 /// Create the isolation tree: `home/`, `state/`, `tmp/`, plus all `home_subdirs`.
-pub fn ensure_isolation_tree(spec: &IsolationSpec, paths: &IsolationPaths) -> Result<()> {
+pub fn ensure_isolation_tree(
+    spec: &(impl IsolationRecipe + ?Sized),
+    paths: &IsolationPaths,
+) -> Result<()> {
     let root = isolation_root(paths)?;
     create_private_isolation_base(&paths.base, &root)?;
     create_private_dir_all(&paths.home, &paths.base, "isolation home")?;
     create_private_dir_all(&paths.state, &paths.base, "isolation state")?;
     create_private_dir_all(&paths.tmp, &paths.base, "isolation tmp")?;
-    for sub in spec.home_subdirs {
+    for sub in spec.home_subdirs() {
         if sub.is_empty() {
             continue;
         }
@@ -95,8 +98,8 @@ pub fn ensure_isolation_tree(spec: &IsolationSpec, paths: &IsolationPaths) -> Re
 /// Seed config files declared in `spec.seed_files`. Policy: create-if-missing.
 /// User edits to seeded files are preserved across launches.
 /// To reset a runtime to seed defaults, use `hm purge <runtime>` (Phase 3).
-pub fn seed_files(spec: &IsolationSpec, paths: &IsolationPaths) -> Result<()> {
-    for seed in spec.seed_files {
+pub fn seed_files(spec: &(impl IsolationRecipe + ?Sized), paths: &IsolationPaths) -> Result<()> {
+    for seed in spec.seed_files() {
         let path = PathBuf::from(subst_tokens(seed.path, paths));
         ensure_under_base(&path, &paths.base, "seed file")?;
         reject_existing_symlink_chain(&path, &paths.base, "seed file")?;

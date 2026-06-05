@@ -2,31 +2,32 @@ use std::path::PathBuf;
 
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, Color, Table};
 
-use super::registry::HARNESSES;
+use super::registry::HarnessRegistry;
 use super::types::HarnessSpec;
 
 #[derive(Debug)]
 pub struct DetectedHarness {
-    pub id: &'static str,
-    pub display_name: &'static str,
-    pub target_runtime: &'static str,
+    pub id: String,
+    pub display_name: String,
+    pub target_runtime: String,
     pub installed: bool,
     pub binary_path: Option<PathBuf>,
 }
 
 pub fn detect_one(spec: &HarnessSpec) -> DetectedHarness {
-    let binary = crate::runtimes::find_binary(spec.detect_binaries);
+    let binary_names: Vec<&str> = spec.detect_binaries.iter().map(String::as_str).collect();
+    let binary = crate::runtimes::find_binary(&binary_names);
     DetectedHarness {
-        id: spec.id,
-        display_name: spec.display_name,
-        target_runtime: spec.target_runtime,
+        id: spec.id.clone(),
+        display_name: spec.display_name.clone(),
+        target_runtime: spec.target_runtime.clone(),
         installed: binary.is_some(),
         binary_path: binary,
     }
 }
 
-pub fn detect_all() -> Vec<DetectedHarness> {
-    HARNESSES.iter().map(detect_one).collect()
+pub fn detect_all(registry: &HarnessRegistry) -> Vec<DetectedHarness> {
+    registry.specs().iter().map(detect_one).collect()
 }
 
 pub fn render_table(detected: &[DetectedHarness]) {
@@ -48,9 +49,9 @@ pub fn render_table(detected: &[DetectedHarness]) {
             Cell::new("Not found").fg(Color::DarkGrey)
         };
         table.add_row(vec![
-            Cell::new(h.id),
-            Cell::new(h.display_name),
-            Cell::new(h.target_runtime),
+            Cell::new(h.id.as_str()),
+            Cell::new(h.display_name.as_str()),
+            Cell::new(h.target_runtime.as_str()),
             status,
         ]);
     }
@@ -85,20 +86,23 @@ mod tests {
     #[test]
     fn detect_one_finds_sh() {
         let spec = HarnessSpec {
-            id: "test-sh",
-            display_name: "test",
-            target_runtime: "Codex CLI",
-            package: PackageSpec::Manual { instructions: "" },
-            detect_binaries: &["sh"],
-            isolation: IsolationSpec {
+            id: "test-sh".to_string(),
+            display_name: "test".to_string(),
+            target_runtime: "Codex CLI".to_string(),
+            package: PackageSpec::Manual {
+                instructions: "".to_string(),
+            },
+            detect_binaries: vec!["sh".to_string()],
+            isolation: crate::isolation::spec::IsolationPlan::from_runtime(&IsolationSpec {
                 subdir: "test",
                 spoof_home: false,
                 home_subdirs: &[],
                 static_envs: &[],
                 seed_files: &[],
                 caveat: None,
-            },
+            }),
             launch_binary: None,
+            launch_args: Vec::new(),
         };
         let result = detect_one(&spec);
         assert!(result.installed, "sh should be found on PATH");
@@ -108,20 +112,23 @@ mod tests {
     #[test]
     fn detect_one_missing_binary() {
         let spec = HarnessSpec {
-            id: "test-missing",
-            display_name: "test",
-            target_runtime: "Codex CLI",
-            package: PackageSpec::Manual { instructions: "" },
-            detect_binaries: &["nonexistent-binary-xyz-99"],
-            isolation: IsolationSpec {
+            id: "test-missing".to_string(),
+            display_name: "test".to_string(),
+            target_runtime: "Codex CLI".to_string(),
+            package: PackageSpec::Manual {
+                instructions: "".to_string(),
+            },
+            detect_binaries: vec!["nonexistent-binary-xyz-99".to_string()],
+            isolation: crate::isolation::spec::IsolationPlan::from_runtime(&IsolationSpec {
                 subdir: "test",
                 spoof_home: false,
                 home_subdirs: &[],
                 static_envs: &[],
                 seed_files: &[],
                 caveat: None,
-            },
+            }),
             launch_binary: None,
+            launch_args: Vec::new(),
         };
         let result = detect_one(&spec);
         assert!(!result.installed);
@@ -129,8 +136,45 @@ mod tests {
     }
 
     #[test]
-    fn detect_all_returns_five() {
-        let results = detect_all();
+    fn detect_all_returns_registered_harnesses() {
+        let registry = crate::harnesses::registry::HarnessRegistry::from_sources(&[
+            crate::harnesses::registry::HarnessSource::manifest(
+                "detect-plugin.toml",
+                r#"
+schema_version = 1
+id = "detect-plugin"
+display_name = "Detect Plugin"
+target_runtime = "Codex CLI"
+detect_binaries = ["nonexistent-detect-plugin-bin"]
+launch_args = []
+
+[package]
+kind = "manual"
+instructions = "manual"
+
+[isolation]
+spoof_home = true
+home_subdirs = [".codex"]
+static_envs = { CODEX_HOME = "{home}/.codex" }
+seed_files = []
+"#,
+            ),
+        ])
+        .unwrap();
+
+        let results = detect_all(&registry);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "detect-plugin");
+        assert_eq!(results[0].target_runtime, "Codex CLI");
+        assert!(!results[0].installed);
+    }
+
+    #[test]
+    fn detect_all_builtin_only_returns_five() {
+        let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
+        let results = detect_all(&registry);
+
         assert_eq!(results.len(), 5);
     }
 }

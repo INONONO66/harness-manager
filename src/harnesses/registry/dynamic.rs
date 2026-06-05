@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -24,7 +22,11 @@ pub struct HarnessDiscoveryEnv {
 #[derive(Debug, Clone)]
 pub enum HarnessSource {
     Builtins,
-    Manifest { label: String, content: String },
+    #[cfg(test)]
+    Manifest {
+        label: String,
+        content: String,
+    },
     File(PathBuf),
 }
 
@@ -33,6 +35,7 @@ impl HarnessSource {
         Self::Builtins
     }
 
+    #[cfg(test)]
     pub fn manifest(label: impl Into<String>, content: impl Into<String>) -> Self {
         Self::Manifest {
             label: label.into(),
@@ -44,6 +47,11 @@ impl HarnessSource {
 impl HarnessRegistry {
     pub fn load() -> Result<Self> {
         Self::load_from_env(&HarnessDiscoveryEnv::from_process())
+    }
+
+    #[cfg(test)]
+    pub fn builtin_only() -> Result<Self> {
+        Self::from_sources(&[HarnessSource::builtins()])
     }
 
     pub fn load_from_env(env: &HarnessDiscoveryEnv) -> Result<Self> {
@@ -96,6 +104,7 @@ impl HarnessSource {
                 .iter()
                 .map(|(label, content)| ((*label).to_string(), (*content).to_string()))
                 .collect()),
+            #[cfg(test)]
             Self::Manifest { label, content } => Ok(vec![(label.clone(), content.clone())]),
             Self::File(path) => {
                 let content = fs::read_to_string(path).with_context(|| {

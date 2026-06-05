@@ -3,13 +3,16 @@ use std::process::Command;
 use anyhow::{bail, Context};
 use colored::Colorize;
 
-use super::find_harness_spec;
 use super::package::{build_install_cmd, build_uninstall_cmd, build_update_cmd};
+use super::registry::HarnessRegistry;
 use super::types::{HarnessSpec, PackageSpec};
+use crate::isolation::spec::IsolationRecipe;
 use crate::isolation::{self, IsolationPaths};
-use crate::runtimes::types::IsolationSpec;
 
-fn apply_isolation_env(cmd: &mut Command, iso: &IsolationSpec) -> anyhow::Result<()> {
+fn apply_isolation_env(
+    cmd: &mut Command,
+    iso: &(impl IsolationRecipe + ?Sized),
+) -> anyhow::Result<()> {
     let paths = IsolationPaths::try_from_spec(iso)?;
     isolation::ensure_isolation_tree(iso, &paths)?;
     isolation::seed_files(iso, &paths)?;
@@ -37,8 +40,11 @@ fn run_cmd(mut cmd: Command, action: &str, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn harness_spec_or_err(id: &str) -> anyhow::Result<&'static HarnessSpec> {
-    find_harness_spec(id).ok_or_else(|| {
+fn harness_spec_or_err<'a>(
+    registry: &'a HarnessRegistry,
+    id: &str,
+) -> anyhow::Result<&'a HarnessSpec> {
+    registry.find(id).ok_or_else(|| {
         anyhow::anyhow!(
             "unknown harness: '{}'. Run `hm harness list` to see available harnesses.",
             id
@@ -46,8 +52,8 @@ fn harness_spec_or_err(id: &str) -> anyhow::Result<&'static HarnessSpec> {
     })
 }
 
-pub fn install(id: &str) -> anyhow::Result<()> {
-    let spec = harness_spec_or_err(id)?;
+pub fn install(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
+    let spec = harness_spec_or_err(registry, id)?;
 
     eprintln!(
         "{} harness '{}'...",
@@ -71,14 +77,14 @@ pub fn install(id: &str) -> anyhow::Result<()> {
         "✓".green().bold(),
         spec.display_name
     );
-    if let Some(caveat) = spec.isolation.caveat {
+    if let Some(caveat) = spec.isolation.caveat() {
         eprintln!("{} {}", "Note:".yellow().bold(), caveat);
     }
     Ok(())
 }
 
-pub fn update(id: &str) -> anyhow::Result<()> {
-    let spec = harness_spec_or_err(id)?;
+pub fn update(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
+    let spec = harness_spec_or_err(registry, id)?;
 
     eprintln!(
         "{} harness '{}'...",
@@ -100,8 +106,8 @@ pub fn update(id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn remove(id: &str, purge: bool) -> anyhow::Result<()> {
-    let spec = harness_spec_or_err(id)?;
+pub fn remove(registry: &HarnessRegistry, id: &str, purge: bool) -> anyhow::Result<()> {
+    let spec = harness_spec_or_err(registry, id)?;
 
     eprintln!(
         "{} harness '{}'...",

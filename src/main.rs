@@ -22,17 +22,21 @@ fn main() -> anyhow::Result<()> {
 
         Commands::Harness { action } => match action {
             HarnessAction::List => {
-                let detected = harnesses::detect::detect_all();
+                let registry = harnesses::load_registry()?;
+                let detected = harnesses::detect::detect_all(&registry);
                 harnesses::detect::render_table(&detected);
             }
             HarnessAction::Install { name } => {
-                harnesses::install::install(&name)?;
+                let registry = harnesses::load_registry()?;
+                harnesses::install::install(&registry, &name)?;
             }
             HarnessAction::Update { name } => {
-                harnesses::install::update(&name)?;
+                let registry = harnesses::load_registry()?;
+                harnesses::install::update(&registry, &name)?;
             }
             HarnessAction::Remove { name, purge } => {
-                harnesses::install::remove(&name, purge)?;
+                let registry = harnesses::load_registry()?;
+                harnesses::install::remove(&registry, &name, purge)?;
             }
         },
 
@@ -47,7 +51,8 @@ fn main() -> anyhow::Result<()> {
 
         Commands::Inject { action } => match action {
             InjectAction::Plan { target, profile } => {
-                inject::run_inject_plan(&target, &profile)?;
+                let registry = harnesses::load_registry()?;
+                inject::run_inject_plan(&registry, &target, &profile)?;
             }
             InjectAction::Apply {
                 target,
@@ -85,7 +90,9 @@ fn main() -> anyhow::Result<()> {
             args,
         } => {
             let _ = harness;
+            let registry = harnesses::load_registry()?;
             launch::run_use(
+                &registry,
                 &runtime,
                 profile.as_deref(),
                 print_env,
@@ -98,16 +105,16 @@ fn main() -> anyhow::Result<()> {
             if args.is_empty() {
                 anyhow::bail!("unexpected empty external subcommand");
             }
-            // `hm omx` is sugar for `hm use omx -- <rest>`
             let name = &args[0];
-            if harnesses::find_harness_spec(name).is_none() {
+            let registry = harnesses::load_registry()?;
+            if registry.find(name).is_none() {
                 anyhow::bail!(
                     "unknown command: '{}'. Run `hm --help`, `hm detect`, or `hm harness list`.",
                     name
                 );
             }
             let extra: Vec<String> = args[1..].to_vec();
-            launch::run_use(name, None, false, false, &extra)?;
+            launch::run_use(&registry, name, None, false, false, &extra)?;
         }
     }
 

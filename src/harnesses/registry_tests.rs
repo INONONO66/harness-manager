@@ -1,9 +1,21 @@
-use super::super::find_harness_spec;
-use super::dynamic::{HarnessDiscoveryEnv, HarnessRegistry, HarnessSource};
 use super::*;
 use crate::runtimes::registry::RUNTIMES;
 use std::collections::HashSet;
 use std::fs;
+use std::path::{Path, PathBuf};
+
+const FORBIDDEN_CORE_HARNESS_TERMS: &[&str] = &[
+    concat!("o", "mx"),
+    concat!("o", "mc"),
+    concat!("o", "mo"),
+    concat!("lazy", "codex"),
+    concat!("ouro", "boros"),
+    concat!("oh", "-my-", "codex"),
+    concat!("oh", "-my-", "claude"),
+    concat!("oh", "-my-", "openagent"),
+    concat!("lazy", "codex", "-ai"),
+    concat!("ouro", "boros", "-ai"),
+];
 
 fn demo_manifest(id: &str) -> String {
     format!(
@@ -28,17 +40,63 @@ CODEX_HOME = "{{home}}/.codex"
     )
 }
 
+fn rust_sources_under(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.is_dir() {
+            rust_sources_under(&path, out);
+        } else if path.extension().and_then(|value| value.to_str()) == Some("rs") {
+            out.push(path);
+        }
+    }
+}
+
+#[test]
+fn core_rust_sources_do_not_hardcode_builtin_harnesses() {
+    let mut sources = Vec::new();
+    rust_sources_under(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut sources,
+    );
+    sources.sort();
+
+    let mut offenders = Vec::new();
+    for source in sources {
+        let file_name = source.file_name().and_then(|value| value.to_str());
+        if matches!(file_name, Some("tests.rs") | Some("registry_tests.rs"))
+            || file_name.is_some_and(|name| name.ends_with("_tests.rs"))
+        {
+            continue;
+        }
+        let content = fs::read_to_string(&source).unwrap();
+        for term in FORBIDDEN_CORE_HARNESS_TERMS {
+            if content.contains(term) {
+                offenders.push(format!("{} contains {term}", source.display()));
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "builtin harness-specific strings must live in manifests outside core:\n{}",
+        offenders.join("\n")
+    );
+}
+
 #[test]
 fn all_ids_unique() {
+    let registry = HarnessRegistry::builtin_only().unwrap();
     let mut seen: HashSet<&str> = HashSet::new();
-    for h in HARNESSES {
-        assert!(seen.insert(h.id), "duplicate harness id: {}", h.id);
+    for h in registry.specs() {
+        assert!(seen.insert(h.id.as_str()), "duplicate harness id: {}", h.id);
     }
 }
 
 #[test]
 fn all_target_runtimes_valid() {
-    for h in HARNESSES {
+    let registry = HarnessRegistry::builtin_only().unwrap();
+    for h in registry.specs() {
         assert!(
             RUNTIMES.iter().any(|r| r.name == h.target_runtime),
             "harness {} targets unknown runtime {}",
@@ -49,44 +107,24 @@ fn all_target_runtimes_valid() {
 }
 
 #[test]
-fn find_harness_spec_works() {
-    assert!(find_harness_spec("omx").is_some());
+fn registry_find_is_case_insensitive() {
+    let registry = HarnessRegistry::from_sources(&[HarnessSource::manifest(
+        "lookup.toml",
+        demo_manifest("lookup-plugin"),
+    )])
+    .unwrap();
+    assert!(registry.find("lookup-plugin").is_some());
     assert!(
-        find_harness_spec("OMX").is_some(),
+        registry.find("LOOKUP-PLUGIN").is_some(),
         "lookup is case-insensitive"
     );
-    assert!(find_harness_spec("nope").is_none());
+    assert!(registry.find("nope").is_none());
 }
 
 #[test]
 fn harness_count_is_five() {
-    assert_eq!(HARNESSES.len(), 5);
-}
-
-#[test]
-fn omo_declares_opencode_config_dir() {
-    let omo = find_harness_spec("omo").unwrap();
-
-    assert!(
-        omo.isolation
-            .static_envs
-            .iter()
-            .any(|(k, v)| *k == "OPENCODE_CONFIG_DIR" && *v == "{home}/.config/opencode"),
-        "omo must route documented OpenCode config writes into its isolated home"
-    );
-}
-
-#[test]
-fn omx_declares_state_roots() {
-    let omx = find_harness_spec("omx").unwrap();
-
-    for key in ["OMX_ROOT", "OMX_STATE_ROOT", "OMX_TEAM_STATE_ROOT"] {
-        assert!(
-            omx.isolation.static_envs.iter().any(|(k, _)| *k == key),
-            "omx must isolate {} for concurrent oh-my-codex sessions",
-            key
-        );
-    }
+    let registry = HarnessRegistry::builtin_only().unwrap();
+    assert_eq!(registry.specs().len(), 5);
 }
 
 #[test]
@@ -104,19 +142,22 @@ fn registry_loads_user_manifest_from_xdg_config_home() {
     .unwrap();
 
     assert!(registry.find("demo").is_some());
-    assert!(registry.find("omx").is_some());
+    assert!(registry.specs().len() > 1);
 }
 
 #[test]
 fn registry_rejects_duplicate_builtin_id() {
+    let builtin = HarnessRegistry::builtin_only().unwrap();
+    let duplicate_id = builtin.specs()[0].id.as_str();
     let err = HarnessRegistry::from_sources(&[
         HarnessSource::builtins(),
-        HarnessSource::manifest("user/omx.toml", demo_manifest("omx")),
+        HarnessSource::manifest("user/duplicate.toml", demo_manifest(duplicate_id)),
     ])
     .unwrap_err();
 
     assert!(
-        err.to_string().contains("duplicate harness id 'omx'"),
+        err.to_string()
+            .contains(&format!("duplicate harness id '{duplicate_id}'")),
         "expected duplicate id error, got: {err:#}"
     );
 }

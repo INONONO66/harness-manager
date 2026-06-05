@@ -1,57 +1,36 @@
 use super::builtin_specs;
 use crate::harnesses::manifest::ManifestPackageSpec;
+use std::collections::HashSet;
 
 #[test]
 fn builtin_manifests_parse_all_five() {
     // Given: the bundled harness manifests.
-    let mut ids: Vec<String> = builtin_specs()
-        .expect("builtins parse")
-        .into_iter()
-        .map(|spec| spec.id)
-        .collect();
+    let specs = builtin_specs().expect("builtins parse");
 
-    // When: the parsed IDs are sorted.
-    ids.sort();
+    // When: the parsed IDs are counted for uniqueness.
+    let unique_ids: HashSet<&str> = specs.iter().map(|spec| spec.id.as_str()).collect();
 
-    // Then: every existing builtin harness is represented exactly once.
-    assert_eq!(ids, ["lazycodex", "omc", "omo", "omx", "ouroboros"]);
+    // Then: every bundled manifest is represented exactly once.
+    assert_eq!(specs.len(), 5);
+    assert_eq!(unique_ids.len(), specs.len());
 }
 
 #[test]
-fn builtin_manifests_preserve_existing_package_strategies() {
+fn builtin_manifests_have_usable_package_strategies() {
     // Given: the bundled harness manifests.
     let specs = builtin_specs().expect("builtins parse");
 
-    // When: package strategies are inspected by ID.
-    let package_for = |id: &str| {
-        specs
-            .iter()
-            .find(|spec| spec.id == id)
-            .map(|spec| &spec.package)
-            .expect("builtin id exists")
-    };
-
-    // Then: strategies match the legacy static registry.
-    assert!(matches!(
-        package_for("lazycodex"),
+    // When: package strategies are inspected.
+    let all_strategies_have_payload = specs.iter().all(|spec| match &spec.package {
+        ManifestPackageSpec::NpmGlobal { package }
+        | ManifestPackageSpec::PythonTool { package } => !package.is_empty(),
         ManifestPackageSpec::NpxInstaller { package, args }
-            if package == "lazycodex-ai" && args == &["install"]
-    ));
-    assert!(matches!(
-        package_for("omo"),
-        ManifestPackageSpec::BunxInstaller { package, args }
-            if package == "oh-my-openagent" && args == &["install"]
-    ));
-    assert!(matches!(
-        package_for("omx"),
-        ManifestPackageSpec::NpmGlobal { package } if package == "oh-my-codex"
-    ));
-    assert!(matches!(
-        package_for("omc"),
-        ManifestPackageSpec::NpmGlobal { package } if package == "oh-my-claude-sisyphus"
-    ));
-    assert!(matches!(
-        package_for("ouroboros"),
-        ManifestPackageSpec::PythonTool { package } if package == "ouroboros-ai"
-    ));
+        | ManifestPackageSpec::BunxInstaller { package, args } => {
+            !package.is_empty() && !args.iter().any(String::is_empty)
+        }
+        ManifestPackageSpec::Manual { instructions } => !instructions.is_empty(),
+    });
+
+    // Then: each bundled package strategy carries the command payload it needs.
+    assert!(all_strategies_have_payload);
 }

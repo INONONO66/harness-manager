@@ -91,13 +91,13 @@ fn ensure_tree_rejects_symlinked_runtimes_ancestor() {
     fs::create_dir_all(&outside).unwrap();
     symlink(&outside, hm_root.join("runtimes")).unwrap();
     let p = IsolationPaths {
-        base: hm_root.join("runtimes/omx"),
-        home: hm_root.join("runtimes/omx/home"),
-        state: hm_root.join("runtimes/omx/state"),
-        tmp: hm_root.join("runtimes/omx/tmp"),
+        base: hm_root.join("runtimes/sample-harness"),
+        home: hm_root.join("runtimes/sample-harness/home"),
+        state: hm_root.join("runtimes/sample-harness/state"),
+        tmp: hm_root.join("runtimes/sample-harness/tmp"),
     };
     let spec = IsolationSpec {
-        subdir: "omx",
+        subdir: "sample-harness",
         spoof_home: true,
         home_subdirs: &[".codex"],
         static_envs: &[],
@@ -112,7 +112,7 @@ fn ensure_tree_rejects_symlinked_runtimes_ancestor() {
         "symlinked runtimes ancestor must be rejected"
     );
     assert!(
-        !outside.join("omx").exists(),
+        !outside.join("sample-harness").exists(),
         "isolation tree must not be created through ancestor symlink"
     );
     let _ = fs::remove_dir_all(&root);
@@ -135,14 +135,14 @@ fn purge_rejects_symlinked_runtimes_ancestor() {
     let outside = root.join("outside");
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&hm_root).unwrap();
-    fs::create_dir_all(outside.join("omx")).unwrap();
-    fs::write(outside.join("omx/sentinel"), "outside").unwrap();
+    fs::create_dir_all(outside.join("sample-harness")).unwrap();
+    fs::write(outside.join("sample-harness/sentinel"), "outside").unwrap();
     symlink(&outside, hm_root.join("runtimes")).unwrap();
     let p = IsolationPaths {
-        base: hm_root.join("runtimes/omx"),
-        home: hm_root.join("runtimes/omx/home"),
-        state: hm_root.join("runtimes/omx/state"),
-        tmp: hm_root.join("runtimes/omx/tmp"),
+        base: hm_root.join("runtimes/sample-harness"),
+        home: hm_root.join("runtimes/sample-harness/home"),
+        state: hm_root.join("runtimes/sample-harness/state"),
+        tmp: hm_root.join("runtimes/sample-harness/tmp"),
     };
 
     let result = purge_isolation_tree(&p);
@@ -152,7 +152,7 @@ fn purge_rejects_symlinked_runtimes_ancestor() {
         "purge must reject symlinked runtimes ancestor"
     );
     assert!(
-        outside.join("omx/sentinel").exists(),
+        outside.join("sample-harness/sentinel").exists(),
         "purge must not delete through ancestor symlink"
     );
     let _ = fs::remove_dir_all(&root);
@@ -162,7 +162,8 @@ fn purge_rejects_symlinked_runtimes_ancestor() {
 fn all_registered_harnesses_have_distinct_isolation_roots() {
     let mut roots = std::collections::HashSet::new();
 
-    for harness in crate::harnesses::registry::HARNESSES {
+    let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
+    for harness in registry.specs() {
         let paths = IsolationPaths::try_from_spec(&harness.isolation).unwrap();
         assert!(
             roots.insert(paths.base.clone()),
@@ -170,7 +171,7 @@ fn all_registered_harnesses_have_distinct_isolation_roots() {
             harness.id
         );
         assert!(
-            paths.base.ends_with(harness.isolation.subdir),
+            paths.base.ends_with(&harness.isolation.subdir),
             "root should end with harness subdir for {}",
             harness.id
         );

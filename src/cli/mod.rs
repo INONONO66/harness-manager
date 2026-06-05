@@ -68,7 +68,7 @@ pub enum Commands {
         args: Vec<String>,
     },
 
-    /// External subcommand: matches harness IDs like `hm omx`, `hm omc`
+    /// External subcommand: matches registered harness IDs.
     #[command(external_subcommand)]
     External(Vec<String>),
 }
@@ -148,7 +148,7 @@ pub enum HarnessAction {
     List,
     /// Install a harness
     Install {
-        /// Harness name (omc, omx, omo, lazycodex, ouroboros)
+        /// Registered harness name.
         name: String,
     },
     /// Update an installed harness

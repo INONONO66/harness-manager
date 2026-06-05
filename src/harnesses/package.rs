@@ -12,7 +12,7 @@ pub(super) fn build_install_cmd(spec: &PackageSpec) -> Option<Command> {
         PackageSpec::NpxInstaller { package, args } => {
             let mut cmd = Command::new("npx");
             cmd.args(["--yes", package]);
-            cmd.args(*args);
+            cmd.args(args);
             Some(cmd)
         }
         PackageSpec::BunxInstaller { package, args } => build_bunx_cmd(package, args),
@@ -31,7 +31,7 @@ pub(super) fn build_update_cmd(spec: &PackageSpec) -> Option<Command> {
         PackageSpec::NpxInstaller { package, args } => {
             let mut cmd = Command::new("npx");
             cmd.args(["--yes", package]);
-            cmd.args(*args);
+            cmd.args(args);
             Some(cmd)
         }
         PackageSpec::BunxInstaller { package, args } => build_bunx_cmd(package, args),
@@ -53,7 +53,7 @@ pub(super) fn build_uninstall_cmd(spec: &PackageSpec) -> Option<Command> {
     }
 }
 
-fn build_bunx_cmd(package: &str, args: &[&str]) -> Option<Command> {
+fn build_bunx_cmd(package: &str, args: &[String]) -> Option<Command> {
     if which::which("bunx").is_ok() {
         let mut cmd = Command::new("bunx");
         cmd.arg(package);

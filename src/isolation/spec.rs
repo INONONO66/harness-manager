@@ -1,6 +1,21 @@
-#![allow(dead_code)]
-
 use crate::runtimes::types::{IsolationSpec, SeedFile};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeedFileView<'a> {
+    pub path: &'a str,
+    pub content: &'a str,
+    pub overwrite: bool,
+    pub mode: Option<u32>,
+}
+
+pub trait IsolationRecipe {
+    fn subdir(&self) -> &str;
+    fn spoof_home(&self) -> bool;
+    fn home_subdirs(&self) -> Vec<&str>;
+    fn static_envs(&self) -> Vec<(&str, &str)>;
+    fn seed_files(&self) -> Vec<SeedFileView<'_>>;
+    fn caveat(&self) -> Option<&str>;
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IsolationPlan {
@@ -53,5 +68,76 @@ impl SeedFilePlan {
             overwrite: seed.overwrite,
             mode: seed.mode,
         }
+    }
+}
+
+impl IsolationRecipe for IsolationSpec {
+    fn subdir(&self) -> &str {
+        self.subdir
+    }
+
+    fn spoof_home(&self) -> bool {
+        self.spoof_home
+    }
+
+    fn home_subdirs(&self) -> Vec<&str> {
+        self.home_subdirs.to_vec()
+    }
+
+    fn static_envs(&self) -> Vec<(&str, &str)> {
+        self.static_envs.to_vec()
+    }
+
+    fn seed_files(&self) -> Vec<SeedFileView<'_>> {
+        self.seed_files
+            .iter()
+            .map(|seed| SeedFileView {
+                path: seed.path,
+                content: seed.content,
+                overwrite: seed.overwrite,
+                mode: seed.mode,
+            })
+            .collect()
+    }
+
+    fn caveat(&self) -> Option<&str> {
+        self.caveat
+    }
+}
+
+impl IsolationRecipe for IsolationPlan {
+    fn subdir(&self) -> &str {
+        &self.subdir
+    }
+
+    fn spoof_home(&self) -> bool {
+        self.spoof_home
+    }
+
+    fn home_subdirs(&self) -> Vec<&str> {
+        self.home_subdirs.iter().map(String::as_str).collect()
+    }
+
+    fn static_envs(&self) -> Vec<(&str, &str)> {
+        self.static_envs
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect()
+    }
+
+    fn seed_files(&self) -> Vec<SeedFileView<'_>> {
+        self.seed_files
+            .iter()
+            .map(|seed| SeedFileView {
+                path: &seed.path,
+                content: &seed.content,
+                overwrite: seed.overwrite,
+                mode: seed.mode,
+            })
+            .collect()
+    }
+
+    fn caveat(&self) -> Option<&str> {
+        self.caveat.as_deref()
     }
 }

@@ -2,16 +2,17 @@ use std::collections::HashMap;
 
 use anyhow::bail;
 
-use crate::harnesses;
+use crate::harnesses::registry::HarnessRegistry;
 use crate::harnesses::types::HarnessSpec;
 use crate::isolation;
+use crate::isolation::spec::IsolationRecipe;
 use crate::runtimes::registry::{CLAUDE_KEYCHAIN_ISOLATION, RUNTIMES};
 use crate::runtimes::types::{IsolationSpec, RuntimeSpec};
 
-pub(super) enum LaunchTarget {
+pub(super) enum LaunchTarget<'a> {
     Runtime(&'static RuntimeSpec),
     Harness {
-        harness: &'static HarnessSpec,
+        harness: &'a HarnessSpec,
         runtime: &'static RuntimeSpec,
     },
 }
@@ -23,9 +24,12 @@ pub(super) fn find_runtime_spec(name: &str) -> Option<&'static RuntimeSpec> {
         .find(|r| r.name.to_lowercase() == lower || r.binary_names.iter().any(|b| *b == lower))
 }
 
-pub(super) fn resolve_target(name: &str) -> anyhow::Result<LaunchTarget> {
-    if let Some(h) = harnesses::find_harness_spec(name) {
-        let rt = find_runtime_spec(h.target_runtime).ok_or_else(|| {
+pub(super) fn resolve_target<'a>(
+    name: &str,
+    registry: &'a HarnessRegistry,
+) -> anyhow::Result<LaunchTarget<'a>> {
+    if let Some(h) = registry.find(name) {
+        let rt = find_runtime_spec(&h.target_runtime).ok_or_else(|| {
             anyhow::anyhow!(
                 "harness '{}' targets runtime '{}', but that runtime is not registered",
                 h.id,
@@ -62,7 +66,7 @@ pub(super) fn runtime_isolation(
 pub(super) fn build_launch_env(
     inherited: &HashMap<String, String>,
     spec: &RuntimeSpec,
-    iso_setup: Option<(&IsolationSpec, &isolation::IsolationPaths)>,
+    iso_setup: Option<(&dyn IsolationRecipe, &isolation::IsolationPaths)>,
 ) -> HashMap<String, String> {
     let mut env = if let Some((iso, paths)) = iso_setup {
         isolation::build_sanitized_isolation_env(inherited, iso, paths)

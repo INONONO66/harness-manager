@@ -1,7 +1,7 @@
 use colored::Colorize;
 
 use crate::config;
-use crate::harnesses;
+use crate::harnesses::registry::HarnessRegistry;
 use crate::runtimes;
 use crate::runtimes::registry::RUNTIMES;
 use crate::runtimes::types::RuntimeSpec;
@@ -20,9 +20,9 @@ struct InjectionTarget {
     runtime: &'static RuntimeSpec,
 }
 
-fn find_injection_target(name: &str) -> Option<InjectionTarget> {
-    if let Some(harness) = harnesses::find_harness_spec(name) {
-        let runtime = find_runtime_spec(harness.target_runtime)?;
+fn find_injection_target(name: &str, registry: &HarnessRegistry) -> Option<InjectionTarget> {
+    if let Some(harness) = registry.find(name) {
+        let runtime = find_runtime_spec(&harness.target_runtime)?;
         return Some(InjectionTarget {
             display_name: format!("{} ({})", harness.display_name, runtime.name),
             runtime,
@@ -34,7 +34,11 @@ fn find_injection_target(name: &str) -> Option<InjectionTarget> {
     })
 }
 
-pub fn run_inject_plan(target: &str, profile_name: &str) -> anyhow::Result<()> {
+pub fn run_inject_plan(
+    registry: &HarnessRegistry,
+    target: &str,
+    profile_name: &str,
+) -> anyhow::Result<()> {
     let hm_config = config::load_config()?;
     let resolved = config::resolve_profile(&hm_config, Some(profile_name))?;
 
@@ -61,7 +65,7 @@ pub fn run_inject_plan(target: &str, profile_name: &str) -> anyhow::Result<()> {
             })
             .collect()
     } else {
-        match find_injection_target(target) {
+        match find_injection_target(target, registry) {
             Some(spec) => vec![spec],
             None => {
                 anyhow::bail!(
@@ -193,10 +197,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn injection_target_resolves_harness_id_to_runtime_spec() {
-        let target = find_injection_target("omx").unwrap();
+    fn injection_target_resolves_plugin_harness_id_to_runtime_spec() {
+        let registry = crate::harnesses::registry::HarnessRegistry::from_sources(&[
+            crate::harnesses::registry::HarnessSource::manifest(
+                "inject-plugin.toml",
+                r#"
+schema_version = 1
+id = "inject-plugin"
+display_name = "Inject Plugin"
+target_runtime = "Codex CLI"
+detect_binaries = ["inject-plugin-bin"]
+launch_args = []
 
-        assert_eq!(target.display_name, "oh-my-codex (Codex CLI)");
+[package]
+kind = "manual"
+instructions = "manual"
+
+[isolation]
+spoof_home = true
+home_subdirs = [".codex"]
+static_envs = { CODEX_HOME = "{home}/.codex" }
+seed_files = []
+"#,
+            ),
+        ])
+        .unwrap();
+
+        let target = find_injection_target("inject-plugin", &registry).unwrap();
+
+        assert_eq!(target.display_name, "Inject Plugin (Codex CLI)");
         assert_eq!(target.runtime.name, "Codex CLI");
     }
 }
