@@ -16,6 +16,7 @@ use crate::runtimes::types::IsolationSpec;
 
 mod env;
 mod paths;
+pub mod spec;
 
 #[cfg(test)]
 pub use env::build_isolation_env;
