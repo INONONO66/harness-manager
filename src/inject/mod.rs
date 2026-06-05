@@ -1,6 +1,7 @@
 use colored::Colorize;
 
 use crate::config;
+use crate::harnesses;
 use crate::runtimes;
 use crate::runtimes::registry::RUNTIMES;
 use crate::runtimes::types::RuntimeSpec;
@@ -11,6 +12,26 @@ fn find_runtime_spec(name: &str) -> Option<&'static RuntimeSpec> {
     RUNTIMES
         .iter()
         .find(|r| r.name.to_lowercase() == lower || r.binary_names.iter().any(|b| *b == lower))
+}
+
+#[derive(Debug, Clone)]
+struct InjectionTarget {
+    display_name: String,
+    runtime: &'static RuntimeSpec,
+}
+
+fn find_injection_target(name: &str) -> Option<InjectionTarget> {
+    if let Some(harness) = harnesses::find_harness_spec(name) {
+        let runtime = find_runtime_spec(harness.target_runtime)?;
+        return Some(InjectionTarget {
+            display_name: format!("{} ({})", harness.display_name, runtime.name),
+            runtime,
+        });
+    }
+    find_runtime_spec(name).map(|runtime| InjectionTarget {
+        display_name: runtime.name.to_string(),
+        runtime,
+    })
 }
 
 pub fn run_inject_plan(target: &str, profile_name: &str) -> anyhow::Result<()> {
@@ -30,30 +51,35 @@ pub fn run_inject_plan(target: &str, profile_name: &str) -> anyhow::Result<()> {
 
     let detected = runtimes::detect_all();
 
-    let specs_to_plan: Vec<&RuntimeSpec> = if target.to_lowercase() == "all" {
+    let targets_to_plan: Vec<InjectionTarget> = if target.to_lowercase() == "all" {
         RUNTIMES
             .iter()
             .filter(|spec| detected.iter().any(|d| d.name == spec.name && d.installed))
+            .map(|runtime| InjectionTarget {
+                display_name: runtime.name.to_string(),
+                runtime,
+            })
             .collect()
     } else {
-        match find_runtime_spec(target) {
+        match find_injection_target(target) {
             Some(spec) => vec![spec],
             None => {
                 anyhow::bail!(
-                    "unknown runtime: '{}'. Run `hm detect` to see available runtimes.",
+                    "unknown runtime or harness: '{}'. Run `hm detect` or `hm harness list` to see available targets.",
                     target
                 );
             }
         }
     };
 
-    if specs_to_plan.is_empty() {
+    if targets_to_plan.is_empty() {
         println!("\n{}", "No installed runtimes to plan for.".yellow());
         return Ok(());
     }
 
-    for spec in &specs_to_plan {
-        println!("\n{}", spec.name.bold().cyan());
+    for target in &targets_to_plan {
+        let spec = target.runtime;
+        println!("\n{}", target.display_name.bold().cyan());
         println!("{}", "-".repeat(40));
 
         let Some(injection) = spec.injection else {
@@ -160,4 +186,17 @@ pub fn run_inject_apply(_target: &str, _profile: &str, _persist: bool) -> anyhow
 pub fn run_inject_reset(_target: &str) -> anyhow::Result<()> {
     eprintln!("{}", "inject reset is not yet implemented.".yellow());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn injection_target_resolves_harness_id_to_runtime_spec() {
+        let target = find_injection_target("omx").unwrap();
+
+        assert_eq!(target.display_name, "oh-my-codex (Codex CLI)");
+        assert_eq!(target.runtime.name, "Codex CLI");
+    }
 }

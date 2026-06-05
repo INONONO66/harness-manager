@@ -135,8 +135,8 @@ hm use omx --profile proxy
 |---|---|---|---|
 | omc | Claude Code | `npm i -g oh-my-claude-sisyphus` | `omc` |
 | omx | Codex CLI | `npm i -g oh-my-codex` | `omx` |
-| omo | OpenCode | `npm i -g oh-my-opencode` | `omo` |
-| lazycodex | Codex CLI | `npm i -g lazycodex-ai` | `lazycodex-ai` |
+| omo | OpenCode | `bunx oh-my-openagent install` (falls back to `npx --yes oh-my-openagent install`) | `omo` |
+| lazycodex | Codex CLI | `npx --yes lazycodex-ai install` | `lazycodex-ai` |
 | ouroboros | Codex CLI | `uv tool install ouroboros-ai` | `ouroboros` |
 
 Each harness runs in `$HM/runtimes/<harness-id>/home` — completely separate from both the real user config and the base runtime's isolation tree.
