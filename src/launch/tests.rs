@@ -99,7 +99,7 @@ fn runtime_isolation_rejects_allow_keychain_for_non_claude() {
     assert!(result
         .unwrap_err()
         .to_string()
-        .contains("--allow-keychain is only supported for Claude Code"));
+        .contains("--allow-keychain is not supported for runtime 'Codex CLI'"));
 }
 
 #[test]
@@ -114,6 +114,10 @@ fn isolated_launch_env_uses_allowlist_and_strips_arbitrary_host_secrets() {
         home: std::env::temp_dir().join("hm-launch-env-test/runtimes/launch-plugin/home"),
         state: std::env::temp_dir().join("hm-launch-env-test/runtimes/launch-plugin/state"),
         tmp: std::env::temp_dir().join("hm-launch-env-test/runtimes/launch-plugin/tmp"),
+        runtime_base: std::env::temp_dir().join("hm-launch-env-test/runtimes/codex"),
+        runtime_home: std::env::temp_dir().join("hm-launch-env-test/runtimes/codex/home"),
+        runtime_state: std::env::temp_dir().join("hm-launch-env-test/runtimes/codex/state"),
+        runtime_logs: std::env::temp_dir().join("hm-launch-env-test/runtimes/codex/state/logs"),
     };
     let inherited = HashMap::from([
         ("PATH".to_string(), "/bin".to_string()),

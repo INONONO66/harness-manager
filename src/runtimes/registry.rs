@@ -1,168 +1,12 @@
 use super::types::*;
 
-// ---------------------------------------------------------------------------
-// Isolation specs.
-// ---------------------------------------------------------------------------
+mod injection;
+mod isolation;
 
-static CLAUDE_ISOLATION: IsolationSpec = IsolationSpec {
-    subdir: "claude",
-    spoof_home: true,
-    home_subdirs: &[".claude"],
-    static_envs: &[
-        ("CLAUDE_CONFIG_DIR", "{home}/.claude"),
-        ("CLAUDE_CODE_TMPDIR", "{tmp}"),
-        ("CLAUDE_CODE_DEBUG_LOGS_DIR", "{state}/logs"),
-        ("DISABLE_UPDATES", "1"),
-        ("DISABLE_AUTOUPDATER", "1"),
-        ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
-        (
-            "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
-            "1",
-        ),
-        ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"),
-        ("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "1"),
-        ("DISABLE_LOGIN_COMMAND", "1"),
-    ],
-    seed_files: &[
-        SeedFile {
-            path: "{home}/.claude/settings.json",
-            content: concat!(
-                "{\n",
-                "  \"apiKeyHelper\": \"{state}/apikey.sh\",\n",
-                "  \"permissions\": { \"defaultMode\": \"ask\" }\n",
-                "}\n",
-            ),
-            overwrite: false,
-            mode: None,
-        },
-        SeedFile {
-            path: "{state}/apikey.sh",
-            content: "#!/bin/sh\nexec hm secret get claude-api-key\n",
-            overwrite: true,
-            mode: Some(0o700),
-        },
-    ],
-    caveat: Some(
-        "Claude default mode uses apiKeyHelper and disables /login to avoid macOS Keychain. Run `printf '%s' '<key>' | hm secret set claude-api-key` before first use, or pass --allow-keychain for OAuth mode.",
-    ),
-};
+pub use isolation::CLAUDE_KEYCHAIN_ISOLATION;
 
-pub static CLAUDE_KEYCHAIN_ISOLATION: IsolationSpec = IsolationSpec {
-    subdir: "claude-keychain",
-    spoof_home: true,
-    home_subdirs: &[".claude"],
-    static_envs: &[
-        ("CLAUDE_CONFIG_DIR", "{home}/.claude"),
-        ("CLAUDE_CODE_TMPDIR", "{tmp}"),
-        ("CLAUDE_CODE_DEBUG_LOGS_DIR", "{state}/logs"),
-        ("DISABLE_UPDATES", "1"),
-        ("DISABLE_AUTOUPDATER", "1"),
-        ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
-        (
-            "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
-            "1",
-        ),
-        ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"),
-        ("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "1"),
-    ],
-    seed_files: &[],
-    caveat: Some(
-        "Claude --allow-keychain mode permits OAuth and may read/write macOS Keychain entry 'Claude Code-credentials'. Use only when you explicitly want Claude subscription login.",
-    ),
-};
-
-static CODEX_ISOLATION: IsolationSpec = IsolationSpec {
-    subdir: "codex",
-    spoof_home: true,
-    home_subdirs: &[".codex"],
-    static_envs: &[("CODEX_HOME", "{home}/.codex")],
-    seed_files: &[SeedFile {
-        path: "{home}/.codex/config.toml",
-        content: concat!(
-            "analytics_enabled = false\n",
-            "check_for_update_on_startup = false\n",
-            "cli_auth_credentials_store = \"file\"\n",
-            "mcp_oauth_credentials_store = \"file\"\n",
-        ),
-        overwrite: false,
-        mode: None,
-    }],
-    caveat: None,
-};
-
-static OPENCODE_ISOLATION: IsolationSpec = IsolationSpec {
-    subdir: "opencode",
-    spoof_home: true,
-    home_subdirs: &[
-        ".config/opencode",
-        ".local/share/opencode",
-        ".cache/opencode",
-        ".local/state/opencode",
-    ],
-    static_envs: &[
-        ("XDG_CONFIG_HOME", "{home}/.config"),
-        ("XDG_DATA_HOME", "{home}/.local/share"),
-        ("XDG_CACHE_HOME", "{home}/.cache"),
-        ("XDG_STATE_HOME", "{home}/.local/state"),
-        ("OPENCODE_DISABLE_AUTOUPDATE", "1"),
-        ("OPENCODE_DISABLE_PROJECT_CONFIG", "1"),
-        ("OPENCODE_PURE", "1"),
-    ],
-    seed_files: &[],
-    caveat: None,
-};
-
-static PI_ISOLATION: IsolationSpec = IsolationSpec {
-    subdir: "pi",
-    spoof_home: true,
-    home_subdirs: &[".pi/agent"],
-    static_envs: &[
-        ("PI_CODING_AGENT_DIR", "{home}/.pi/agent"),
-        ("PI_OFFLINE", "1"),
-        ("PI_SKIP_VERSION_CHECK", "1"),
-        ("PI_TELEMETRY", "0"),
-    ],
-    seed_files: &[],
-    caveat: None,
-};
-
-static CLAUDE_INJECTION: InjectionSpec = InjectionSpec {
-    endpoint_env: "ANTHROPIC_BASE_URL",
-    api_key_env: "ANTHROPIC_API_KEY",
-    proxy_envs: &["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"],
-    strip_envs: &[
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_BASE_URL",
-    ],
-    endpoint_strip_v1: true,
-};
-
-static CODEX_INJECTION: InjectionSpec = InjectionSpec {
-    endpoint_env: "OPENAI_BASE_URL",
-    api_key_env: "OPENAI_API_KEY",
-    proxy_envs: &["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"],
-    strip_envs: &[
-        "OPENAI_API_KEY",
-        "OPENAI_BASE_URL",
-        "CODEX_API_KEY",
-        "CODEX_ACCESS_TOKEN",
-    ],
-    endpoint_strip_v1: false,
-};
-
-static OPENCODE_INJECTION: InjectionSpec = InjectionSpec {
-    endpoint_env: "OPENAI_BASE_URL",
-    api_key_env: "OPENAI_API_KEY",
-    proxy_envs: &["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"],
-    strip_envs: &[
-        "ANTHROPIC_API_KEY",
-        "OPENAI_API_KEY",
-        "GOOGLE_API_KEY",
-        "GROQ_API_KEY",
-    ],
-    endpoint_strip_v1: false,
-};
+use injection::{CLAUDE_INJECTION, CODEX_INJECTION, OPENCODE_INJECTION};
+use isolation::{CLAUDE_ISOLATION, CODEX_ISOLATION, OPENCODE_ISOLATION, PI_ISOLATION};
 
 pub static RUNTIMES: &[RuntimeSpec] = &[
     RuntimeSpec {
@@ -191,6 +35,12 @@ pub static RUNTIMES: &[RuntimeSpec] = &[
         ],
         injection: Some(&CLAUDE_INJECTION),
         isolation: Some(&CLAUDE_ISOLATION),
+        keychain_isolation: Some(&CLAUDE_KEYCHAIN_ISOLATION),
+        auth_login: AuthLoginSpec::Exec {
+            label: "Claude Code",
+            binary: "claude",
+            args: &[],
+        },
     },
     RuntimeSpec {
         name: "Codex CLI",
@@ -214,6 +64,12 @@ pub static RUNTIMES: &[RuntimeSpec] = &[
         ],
         injection: Some(&CODEX_INJECTION),
         isolation: Some(&CODEX_ISOLATION),
+        keychain_isolation: None,
+        auth_login: AuthLoginSpec::Exec {
+            label: "Codex",
+            binary: "codex",
+            args: &["auth", "login"],
+        },
     },
     RuntimeSpec {
         name: "OpenCode",
@@ -242,6 +98,16 @@ pub static RUNTIMES: &[RuntimeSpec] = &[
         ],
         injection: Some(&OPENCODE_INJECTION),
         isolation: Some(&OPENCODE_ISOLATION),
+        keychain_isolation: None,
+        auth_login: AuthLoginSpec::Message {
+            lines: &[
+                "OpenCode uses provider-specific authentication.",
+                "Set API keys via environment variables:",
+                "  export ANTHROPIC_API_KEY=sk-...",
+                "  export OPENAI_API_KEY=sk-...",
+                "Or run `opencode` to authenticate interactively.",
+            ],
+        },
     },
     RuntimeSpec {
         name: "Pi",
@@ -259,94 +125,11 @@ pub static RUNTIMES: &[RuntimeSpec] = &[
         }],
         injection: None,
         isolation: Some(&PI_ISOLATION),
+        keychain_isolation: None,
+        auth_login: AuthLoginSpec::Unsupported,
     },
 ];
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pi_env_var_is_not_empty() {
-        let pi = RUNTIMES
-            .iter()
-            .find(|r| r.name == "Pi")
-            .expect("Pi runtime");
-        match &pi.config_locator {
-            ConfigLocator::EnvOrHome { env_var, .. } => {
-                assert_eq!(*env_var, "PI_CODING_AGENT_DIR");
-            }
-            other => panic!("Pi config_locator changed shape: {:?}", other),
-        }
-    }
-
-    #[test]
-    fn phase1_runtimes_have_isolation() {
-        for name in &["Codex CLI", "OpenCode", "Pi"] {
-            let rt = RUNTIMES
-                .iter()
-                .find(|r| r.name == *name)
-                .unwrap_or_else(|| panic!("{} runtime missing", name));
-            assert!(
-                rt.isolation.is_some(),
-                "{} must have isolation in Phase 1",
-                name
-            );
-        }
-    }
-
-    #[test]
-    fn claude_has_default_isolation_in_phase_2() {
-        let c = RUNTIMES
-            .iter()
-            .find(|r| r.name == "Claude Code")
-            .expect("Claude Code runtime");
-        let iso = c.isolation.expect("Claude isolation set");
-        assert_eq!(iso.subdir, "claude");
-        assert!(iso
-            .static_envs
-            .iter()
-            .any(|(k, _)| *k == "DISABLE_LOGIN_COMMAND"));
-        assert!(iso
-            .seed_files
-            .iter()
-            .any(|s| s.path.ends_with("apikey.sh") && s.overwrite && s.mode == Some(0o700)));
-    }
-
-    #[test]
-    fn codex_isolation_has_seed_config() {
-        let codex = RUNTIMES
-            .iter()
-            .find(|r| r.name == "Codex CLI")
-            .expect("Codex CLI runtime");
-        let iso = codex.isolation.expect("isolation set");
-        assert_eq!(iso.subdir, "codex");
-        assert!(iso.spoof_home);
-        assert!(iso
-            .seed_files
-            .iter()
-            .any(|s| s.path.contains("config.toml")
-                && s.content.contains("analytics_enabled = false")));
-    }
-
-    #[test]
-    fn opencode_isolation_redirects_xdg_quartet() {
-        let oc = RUNTIMES
-            .iter()
-            .find(|r| r.name == "OpenCode")
-            .expect("OpenCode runtime");
-        let iso = oc.isolation.expect("isolation set");
-        for xdg in &[
-            "XDG_CONFIG_HOME",
-            "XDG_DATA_HOME",
-            "XDG_CACHE_HOME",
-            "XDG_STATE_HOME",
-        ] {
-            assert!(
-                iso.static_envs.iter().any(|(k, _)| k == xdg),
-                "OpenCode isolation missing {}",
-                xdg
-            );
-        }
-    }
-}
+#[path = "registry/tests.rs"]
+mod tests;

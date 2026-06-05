@@ -89,8 +89,13 @@ fn main() -> anyhow::Result<()> {
             harness,
             args,
         } => {
-            let _ = harness;
             let registry = harnesses::load_registry()?;
+            if harness && registry.find(&runtime).is_none() {
+                anyhow::bail!(
+                    "--harness target '{}' is not a registered harness. Run `hm harness list`.",
+                    runtime
+                );
+            }
             launch::run_use(
                 &registry,
                 &runtime,

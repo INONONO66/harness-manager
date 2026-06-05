@@ -87,7 +87,7 @@ has "^XDG_CACHE_HOME=${HM_DATA}/runtimes/opencode/home/\\.cache$" "$EVIDENCE/s3.
 has "^XDG_STATE_HOME=${HM_DATA}/runtimes/opencode/home/\\.local/state$" "$EVIDENCE/s3.env"
 has "^OPENCODE_DISABLE_AUTOUPDATE=1$" "$EVIDENCE/s3.env"
 has "^OPENCODE_DISABLE_PROJECT_CONFIG=1$" "$EVIDENCE/s3.env"
-has "^OPENCODE_PURE=1$" "$EVIDENCE/s3.env"
+nohas "^OPENCODE_PURE=1$" "$EVIDENCE/s3.env"
 test -d "$HM_DATA/runtimes/opencode/home/.config/opencode" || fail ".config/opencode subdir not created"
 test -d "$HM_DATA/runtimes/opencode/home/.local/share/opencode" || fail ".local/share/opencode subdir not created"
 test -d "$HM_DATA/runtimes/opencode/home/.cache/opencode" || fail ".cache/opencode subdir not created"

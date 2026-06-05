@@ -119,6 +119,21 @@ pub struct RuntimeSpec {
     pub injection: Option<&'static InjectionSpec>,
     /// Per-runtime isolation recipe for `hm use`. None = no isolation (e.g. Claude in Phase 1).
     pub isolation: Option<&'static IsolationSpec>,
+    pub keychain_isolation: Option<&'static IsolationSpec>,
+    pub auth_login: AuthLoginSpec,
+}
+
+#[derive(Debug, Clone)]
+pub enum AuthLoginSpec {
+    Exec {
+        label: &'static str,
+        binary: &'static str,
+        args: &'static [&'static str],
+    },
+    Message {
+        lines: &'static [&'static str],
+    },
+    Unsupported,
 }
 
 #[derive(Debug, Clone)]
@@ -143,6 +158,9 @@ pub struct InjectionSpec {
 ///   `{home}`  → `$HM/runtimes/<subdir>/home`
 ///   `{state}` → `$HM/runtimes/<subdir>/state`
 ///   `{tmp}`   → `$HM/runtimes/<subdir>/tmp`
+///   `{runtime_home}`  → `$HM/runtimes/<runtime-subdir>/home`
+///   `{runtime_state}` → `$HM/runtimes/<runtime-subdir>/state`
+///   `{runtime_logs}`  → `$HM/runtimes/<runtime-subdir>/state/logs`
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct IsolationSpec {

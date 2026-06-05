@@ -6,7 +6,7 @@ use crate::harnesses::registry::HarnessRegistry;
 use crate::harnesses::types::HarnessSpec;
 use crate::isolation;
 use crate::isolation::spec::IsolationRecipe;
-use crate::runtimes::registry::{CLAUDE_KEYCHAIN_ISOLATION, RUNTIMES};
+use crate::runtimes::registry::RUNTIMES;
 use crate::runtimes::types::{IsolationSpec, RuntimeSpec};
 
 pub(super) enum LaunchTarget<'a> {
@@ -55,10 +55,15 @@ pub(super) fn runtime_isolation(
     allow_keychain: bool,
 ) -> anyhow::Result<Option<&'static IsolationSpec>> {
     if allow_keychain {
-        if runtime.name != "Claude Code" {
-            bail!("--allow-keychain is only supported for Claude Code");
-        }
-        return Ok(Some(&CLAUDE_KEYCHAIN_ISOLATION as &IsolationSpec));
+        return runtime
+            .keychain_isolation
+            .map(|spec| Some(spec as &IsolationSpec))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "--allow-keychain is not supported for runtime '{}'",
+                    runtime.name
+                )
+            });
     }
     Ok(runtime.isolation)
 }
