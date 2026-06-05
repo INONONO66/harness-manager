@@ -1,0 +1,31 @@
+schema_version = 1
+id = "omo"
+display_name = "oh-my-openagent"
+target_runtime = "OpenCode"
+detect_binaries = ["omo"]
+
+[package]
+kind = "bunx-installer"
+package = "oh-my-openagent"
+args = ["install"]
+
+[isolation]
+subdir = "omo"
+spoof_home = true
+home_subdirs = [
+  ".config/opencode",
+  ".local/share/opencode",
+  ".cache/opencode",
+  ".local/state/opencode",
+]
+caveat = "omo harness: OpenCode with oh-my-openagent plugin."
+
+[isolation.static_envs]
+XDG_CONFIG_HOME = "{home}/.config"
+XDG_DATA_HOME = "{home}/.local/share"
+XDG_CACHE_HOME = "{home}/.cache"
+XDG_STATE_HOME = "{home}/.local/state"
+OPENCODE_CONFIG_DIR = "{home}/.config/opencode"
+OPENCODE_DISABLE_AUTOUPDATE = "1"
+OPENCODE_DISABLE_PROJECT_CONFIG = "1"
+OPENCODE_PURE = "1"
