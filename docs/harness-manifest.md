@@ -38,6 +38,7 @@ If a manifest is malformed, `hm` fails before package-manager, launch, inject, r
 ```toml
 schema_version = 1
 id = "demo"
+aliases = ["dm"]
 display_name = "Demo Harness"
 target_runtime = "Codex CLI"
 detect_binaries = ["demo-agent"]
@@ -67,6 +68,7 @@ Check it:
 hm harness list
 hm harness install demo
 hm use demo -- --help
+hm dm -- --help
 hm harness remove demo --purge
 ```
 
@@ -111,6 +113,8 @@ instructions = "Install the binary with your plugin manager."
 `schema_version`: must be `1`.
 
 `id`: command identifier. Lowercase ASCII, 2-64 characters, with digits, `_`, and `-` allowed. It must not duplicate a bundled/user harness ID or shadow a runtime command.
+
+`aliases`: optional short command identifiers, validated like `id`. Aliases must not duplicate any harness ID, any other alias, or runtime command. Use this for shortcuts such as `lc`, `omo`, or `omx`.
 
 `display_name`: label shown in `hm harness list` and launch output.
 

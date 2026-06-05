@@ -1,5 +1,6 @@
 schema_version = 1
 id = "lazycodex"
+aliases = ["lc"]
 display_name = "lazycodex"
 target_runtime = "Codex CLI"
 detect_binaries = ["codex"]

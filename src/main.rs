@@ -12,6 +12,21 @@ mod secrets;
 use clap::Parser;
 use cli::{AuthAction, Cli, Commands, HarnessAction, InjectAction, SecretAction};
 
+fn harness_labels(registry: &harnesses::registry::HarnessRegistry) -> String {
+    registry
+        .specs()
+        .iter()
+        .map(|spec| {
+            if spec.aliases.is_empty() {
+                spec.id.clone()
+            } else {
+                format!("{} ({})", spec.id, spec.aliases.join(", "))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -92,8 +107,9 @@ fn main() -> anyhow::Result<()> {
             let registry = harnesses::load_registry()?;
             if harness && registry.find(&runtime).is_none() {
                 anyhow::bail!(
-                    "--harness target '{}' is not a registered harness. Run `hm harness list`.",
-                    runtime
+                    "--harness target '{}' is not registered. Available harnesses: {}. Run `hm harness list` for status.",
+                    runtime,
+                    harness_labels(&registry)
                 );
             }
             launch::run_use(
@@ -114,8 +130,9 @@ fn main() -> anyhow::Result<()> {
             let registry = harnesses::load_registry()?;
             if registry.find(name).is_none() {
                 anyhow::bail!(
-                    "unknown command: '{}'. Run `hm --help`, `hm detect`, or `hm harness list`.",
-                    name
+                    "unknown command: '{}'. Try `hm --help`, a runtime via `hm use <runtime>`, or one of these harnesses: {}.",
+                    name,
+                    harness_labels(&registry)
                 );
             }
             let extra: Vec<String> = args[1..].to_vec();

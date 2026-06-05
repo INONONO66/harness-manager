@@ -45,9 +45,38 @@ pub(super) fn resolve_target<'a>(
         return Ok(LaunchTarget::Runtime(rt));
     }
     bail!(
-        "unknown target: '{}'. Run `hm detect` or `hm harness list` to see available targets.",
-        name
+        "unknown target: '{}'. Built-in runtimes: {}. Harnesses: {}. Run `hm detect` or `hm harness list` for status.",
+        name,
+        runtime_labels(),
+        harness_labels(registry)
     )
+}
+
+fn runtime_labels() -> String {
+    RUNTIMES
+        .iter()
+        .map(|runtime| runtime.binary_names[0])
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn harness_labels(registry: &HarnessRegistry) -> String {
+    let labels = registry
+        .specs()
+        .iter()
+        .map(|harness| {
+            if harness.aliases.is_empty() {
+                harness.id.clone()
+            } else {
+                format!("{} ({})", harness.id, harness.aliases.join(", "))
+            }
+        })
+        .collect::<Vec<_>>();
+    if labels.is_empty() {
+        "none registered".to_string()
+    } else {
+        labels.join(", ")
+    }
 }
 
 pub(super) fn runtime_isolation(

@@ -109,6 +109,7 @@ Minimal manifest:
 ```toml
 schema_version = 1
 id = "my-harness"
+aliases = ["mh"]
 display_name = "My Harness"
 target_runtime = "Codex CLI"
 detect_binaries = ["my-harness"]
@@ -130,6 +131,7 @@ Then run:
 hm harness list
 hm harness install my-harness
 hm use my-harness -- --help
+hm mh -- --help
 ```
 
 Full schema and plugin packaging guidance: [docs/harness-manifest.md](docs/harness-manifest.md).

@@ -8,6 +8,7 @@ use super::types::HarnessSpec;
 #[derive(Debug)]
 pub struct DetectedHarness {
     pub id: String,
+    pub aliases: Vec<String>,
     pub display_name: String,
     pub target_runtime: String,
     pub installed: bool,
@@ -19,6 +20,7 @@ pub fn detect_one(spec: &HarnessSpec) -> DetectedHarness {
     let binary = crate::runtimes::find_binary(&binary_names);
     DetectedHarness {
         id: spec.id.clone(),
+        aliases: spec.aliases.clone(),
         display_name: spec.display_name.clone(),
         target_runtime: spec.target_runtime.clone(),
         installed: binary.is_some(),
@@ -37,22 +39,32 @@ pub fn render_table(detected: &[DetectedHarness]) {
         .apply_modifier(UTF8_ROUND_CORNERS)
         .set_header(vec![
             Cell::new("Harness").fg(Color::White),
+            Cell::new("Aliases").fg(Color::White),
             Cell::new("Display Name").fg(Color::White),
             Cell::new("Target Runtime").fg(Color::White),
             Cell::new("Status").fg(Color::White),
+            Cell::new("Next Step").fg(Color::White),
         ]);
 
     for h in detected {
-        let status = if h.installed {
-            Cell::new("Installed").fg(Color::Green)
+        let (status, next_step) = if h.installed {
+            (
+                Cell::new("Installed").fg(Color::Green),
+                format!("hm use {} -- --help", h.id),
+            )
         } else {
-            Cell::new("Not found").fg(Color::DarkGrey)
+            (
+                Cell::new("Not found").fg(Color::DarkGrey),
+                format!("hm harness install {}", h.id),
+            )
         };
         table.add_row(vec![
             Cell::new(h.id.as_str()),
+            Cell::new(alias_label(&h.aliases)),
             Cell::new(h.display_name.as_str()),
             Cell::new(h.target_runtime.as_str()),
             status,
+            Cell::new(next_step),
         ]);
     }
 
@@ -69,12 +81,34 @@ pub fn render_table(detected: &[DetectedHarness]) {
                 println!("  Binary:  {}", bin.display());
             }
             println!("  Target:  {}", h.target_runtime);
+            if !h.aliases.is_empty() {
+                println!("  Aliases: {}", h.aliases.join(", "));
+            }
         }
     }
 
     let found = detected.iter().filter(|h| h.installed).count();
     use colored::Colorize;
-    println!("\n{} harness(es) detected", found.to_string().bold());
+    println!(
+        "\n{} of {} harness(es) detected",
+        found.to_string().bold(),
+        detected.len().to_string().bold()
+    );
+    if found < detected.len() {
+        println!(
+            "Run {} to install a missing harness, or {} to launch an installed one.",
+            "hm harness install <id>".cyan(),
+            "hm use <id>".cyan()
+        );
+    }
+}
+
+fn alias_label(aliases: &[String]) -> String {
+    if aliases.is_empty() {
+        "-".to_string()
+    } else {
+        aliases.join(", ")
+    }
 }
 
 #[cfg(test)]
@@ -87,6 +121,7 @@ mod tests {
     fn detect_one_finds_sh() {
         let spec = HarnessSpec {
             id: "test-sh".to_string(),
+            aliases: Vec::new(),
             display_name: "test".to_string(),
             target_runtime: "Codex CLI".to_string(),
             package: PackageSpec::Manual {
@@ -113,6 +148,7 @@ mod tests {
     fn detect_one_missing_binary() {
         let spec = HarnessSpec {
             id: "test-missing".to_string(),
+            aliases: Vec::new(),
             display_name: "test".to_string(),
             target_runtime: "Codex CLI".to_string(),
             package: PackageSpec::Manual {

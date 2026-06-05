@@ -45,9 +45,22 @@ fn harness_spec_or_err<'a>(
     id: &str,
 ) -> anyhow::Result<&'a HarnessSpec> {
     registry.find(id).ok_or_else(|| {
+        let available = registry
+            .specs()
+            .iter()
+            .map(|spec| {
+                if spec.aliases.is_empty() {
+                    spec.id.clone()
+                } else {
+                    format!("{} ({})", spec.id, spec.aliases.join(", "))
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
         anyhow::anyhow!(
-            "unknown harness: '{}'. Run `hm harness list` to see available harnesses.",
-            id
+            "unknown harness: '{}'. Available harnesses: {}. Run `hm harness list` for status and install hints.",
+            id,
+            available
         )
     })
 }

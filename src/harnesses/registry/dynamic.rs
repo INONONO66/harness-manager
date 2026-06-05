@@ -64,11 +64,17 @@ impl HarnessRegistry {
     pub fn from_sources(sources: &[HarnessSource]) -> Result<Self> {
         let mut specs = Vec::new();
         let mut seen = HashSet::new();
+        let mut routes = HashSet::new();
         for source in sources {
             for (label, content) in source.contents()? {
                 let spec = parse_toml(&label, &content)?;
                 if !seen.insert(spec.id.clone()) {
                     anyhow::bail!("duplicate harness id '{}'", spec.id);
+                }
+                for route in std::iter::once(&spec.id).chain(spec.aliases.iter()) {
+                    if !routes.insert(route.clone()) {
+                        anyhow::bail!("duplicate harness route '{}'", route);
+                    }
                 }
                 specs.push(spec);
             }
@@ -83,7 +89,9 @@ impl HarnessRegistry {
 
     pub fn find(&self, name: &str) -> Option<&ManifestHarnessSpec> {
         let lower = name.to_lowercase();
-        self.specs.iter().find(|spec| spec.id == lower)
+        self.specs
+            .iter()
+            .find(|spec| spec.id == lower || spec.aliases.iter().any(|alias| alias == &lower))
     }
 }
 

@@ -2,6 +2,7 @@ use colored::Colorize;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, Color, Table};
 
 use crate::runtimes;
+use crate::runtimes::registry::RUNTIMES;
 use crate::runtimes::types::AuthStatus;
 
 fn auth_summary(sources: &[AuthStatus]) -> (String, Color) {
@@ -44,6 +45,35 @@ fn auth_detail_lines(sources: &[AuthStatus]) -> Vec<String> {
         .collect()
 }
 
+fn runtime_command(name: &str) -> &str {
+    RUNTIMES
+        .iter()
+        .find(|runtime| runtime.name == name)
+        .and_then(|runtime| runtime.binary_names.first().copied())
+        .unwrap_or("-")
+}
+
+fn has_configured_auth(sources: &[AuthStatus]) -> bool {
+    sources.iter().any(|source| {
+        matches!(
+            source,
+            AuthStatus::Valid { .. } | AuthStatus::ExpiresSoon { .. }
+        )
+    })
+}
+
+fn next_step(name: &str, installed: bool, auth_sources: &[AuthStatus]) -> String {
+    let command = runtime_command(name);
+    if !installed {
+        return format!("Install {}", name);
+    }
+    if has_configured_auth(auth_sources) {
+        format!("hm use {} -- --help", command)
+    } else {
+        format!("hm auth login {}", command)
+    }
+}
+
 pub fn run_detect() -> anyhow::Result<()> {
     let results = runtimes::detect_all();
 
@@ -53,9 +83,11 @@ pub fn run_detect() -> anyhow::Result<()> {
         .apply_modifier(UTF8_ROUND_CORNERS)
         .set_header(vec![
             Cell::new("Runtime").fg(Color::White),
+            Cell::new("Command").fg(Color::White),
             Cell::new("Status").fg(Color::White),
             Cell::new("Version").fg(Color::White),
             Cell::new("Auth").fg(Color::White),
+            Cell::new("Next Step").fg(Color::White),
         ]);
 
     for rt in &results {
@@ -70,7 +102,14 @@ pub fn run_detect() -> anyhow::Result<()> {
         let (auth_text, auth_color) = auth_summary(&rt.auth_sources);
         let auth = Cell::new(&auth_text).fg(auth_color);
 
-        table.add_row(vec![Cell::new(&rt.name), status, version, auth]);
+        table.add_row(vec![
+            Cell::new(&rt.name),
+            Cell::new(runtime_command(&rt.name)),
+            status,
+            version,
+            auth,
+            Cell::new(next_step(&rt.name, rt.installed, &rt.auth_sources)),
+        ]);
     }
 
     println!("{}", table);
@@ -90,6 +129,7 @@ pub fn run_detect() -> anyhow::Result<()> {
             if let Some(ref cfg) = rt.config_path {
                 println!("  Config:  {}", cfg.display());
             }
+            println!("  Command: hm use {}", runtime_command(&rt.name));
 
             let lines = auth_detail_lines(&rt.auth_sources);
             for (i, line) in lines.iter().enumerate() {
@@ -109,6 +149,12 @@ pub fn run_detect() -> anyhow::Result<()> {
         println!(
             "{}",
             "No agent runtimes found. Install Claude Code, Codex CLI, OpenCode, or Pi.".yellow()
+        );
+    } else {
+        println!(
+            "Run {} to launch a configured runtime, or {} to configure auth.",
+            "hm use <command>".cyan(),
+            "hm auth login <command>".cyan()
         );
     }
 

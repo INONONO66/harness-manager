@@ -19,6 +19,7 @@ const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManifestHarnessSpec {
     pub id: String,
+    pub aliases: Vec<String>,
     pub display_name: String,
     pub target_runtime: String,
     pub package: ManifestPackageSpec,
@@ -42,6 +43,8 @@ pub enum ManifestPackageSpec {
 struct HarnessManifest {
     schema_version: u32,
     id: String,
+    #[serde(default)]
+    aliases: Vec<String>,
     display_name: String,
     target_runtime: String,
     detect_binaries: Vec<String>,
@@ -121,6 +124,15 @@ fn convert_manifest(path_label: &str, manifest: HarnessManifest) -> Result<Manif
         path_label,
         "id",
     )?;
+    for alias in &manifest.aliases {
+        validate_id(path_label, alias)?;
+        ensure(alias != &manifest.id, path_label, "aliases")?;
+        ensure(
+            !manifest_id_conflicts_with_runtime(alias),
+            path_label,
+            "aliases",
+        )?;
+    }
     ensure(
         RUNTIMES
             .iter()
@@ -151,6 +163,7 @@ fn convert_manifest(path_label: &str, manifest: HarnessManifest) -> Result<Manif
 
     Ok(ManifestHarnessSpec {
         id: manifest.id,
+        aliases: manifest.aliases,
         display_name: manifest.display_name,
         target_runtime: manifest.target_runtime,
         package,

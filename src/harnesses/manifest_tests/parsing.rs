@@ -11,6 +11,7 @@ fn parses_minimal_manifest_into_owned_spec() {
 
     // Then: owned fields and isolation defaults are preserved.
     assert_eq!(parsed.id, "demo");
+    assert!(parsed.aliases.is_empty());
     assert_eq!(parsed.display_name, "Demo Harness");
     assert_eq!(parsed.target_runtime, "Codex CLI");
     assert_eq!(parsed.detect_binaries, vec!["demo"]);
@@ -28,6 +29,21 @@ fn parses_minimal_manifest_into_owned_spec() {
         ManifestPackageSpec::NpmGlobal { package } => assert_eq!(package, "demo-package"),
         other => panic!("unexpected package variant: {other:?}"),
     }
+}
+
+#[test]
+fn manifest_parses_aliases() {
+    // Given: a manifest that declares short command aliases.
+    let input = minimal_manifest("").replace(
+        r#"id = "demo""#,
+        "id = \"demo\"\naliases = [\"dm\", \"dx\"]",
+    );
+
+    // When: the manifest is parsed.
+    let parsed = parse_toml("aliases.toml", &input).expect("aliases parse");
+
+    // Then: aliases are preserved in declaration order.
+    assert_eq!(parsed.aliases, vec!["dm", "dx"]);
 }
 
 #[test]

@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 #[command(
     name = "hm",
     about = "Agent Runtime Manager — detect, manage, and launch AI coding agent runtimes",
+    long_about = "Agent Runtime Manager — keep AI coding agent runtimes, auth state, proxy profiles, and harness isolation manageable from one command layer.\n\nStart with:\n  hm detect\n  hm auth status\n  hm harness list\n  hm use codex --profile proxy -- --help",
     version,
     propagate_version = true
 )]
@@ -15,38 +16,44 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Detect installed agent runtimes
+    #[command(alias = "ls")]
     Detect,
 
     /// Manage harness installations (install, update, remove, list)
+    #[command(alias = "h")]
     Harness {
         #[command(subcommand)]
         action: HarnessAction,
     },
 
     /// Manage authentication across runtimes
+    #[command(alias = "a")]
     Auth {
         #[command(subcommand)]
         action: AuthAction,
     },
 
     /// Manage injection profiles and apply/reset persistent injections
+    #[command(alias = "profile")]
     Inject {
         #[command(subcommand)]
         action: InjectAction,
     },
 
     /// Manage hm's local secret store
+    #[command(alias = "secrets")]
     Secret {
         #[command(subcommand)]
         action: SecretAction,
     },
 
-    /// Launch a runtime with profile injection
+    /// Launch a runtime or registered harness with profile injection
+    #[command(alias = "run")]
     Use {
-        /// Runtime to launch (claude, codex, opencode, pi)
+        /// Runtime or harness to launch (claude, codex, opencode, pi, or a harness id)
         runtime: String,
 
-        /// Profile to inject
+        /// Profile from ~/.config/hm/config.toml to inject
         #[arg(short, long)]
         profile: Option<String>,
 
@@ -76,11 +83,12 @@ pub enum Commands {
 #[derive(Subcommand)]
 pub enum AuthAction {
     /// Show auth status for all runtimes
+    #[command(alias = "list")]
     Status,
 
     /// Delegate login to a runtime's native auth flow
     Login {
-        /// Runtime to login (claude, codex, opencode, pi)
+        /// Runtime to log in (claude, codex, opencode, pi)
         runtime: String,
     },
 }
@@ -145,6 +153,7 @@ pub enum SecretAction {
 #[derive(Subcommand)]
 pub enum HarnessAction {
     /// List available harnesses and their install status
+    #[command(alias = "ls")]
     List,
     /// Install a harness
     Install {

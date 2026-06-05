@@ -81,6 +81,38 @@ fn manifest_rejects_runtime_binary_id_collision() {
 }
 
 #[test]
+fn manifest_rejects_runtime_binary_alias_collision() {
+    // Given: a manifest alias that would shadow the Codex runtime command.
+    let input =
+        minimal_manifest("").replace(r#"id = "demo""#, "id = \"demo\"\naliases = [\"codex\"]");
+
+    // When: the manifest is parsed.
+    let err = parse_toml("shadow-alias.toml", &input).expect_err("runtime alias must fail");
+
+    // Then: conversion rejects the ambiguous alias before command routing.
+    assert!(
+        err.to_string().contains("aliases"),
+        "error should mention aliases, got: {err:#}"
+    );
+}
+
+#[test]
+fn manifest_rejects_alias_matching_own_id() {
+    // Given: a manifest that repeats its id as an alias.
+    let input =
+        minimal_manifest("").replace(r#"id = "demo""#, "id = \"demo\"\naliases = [\"demo\"]");
+
+    // When: the manifest is parsed.
+    let err = parse_toml("self-alias.toml", &input).expect_err("self alias must fail");
+
+    // Then: conversion rejects the redundant route.
+    assert!(
+        err.to_string().contains("aliases"),
+        "error should mention aliases, got: {err:#}"
+    );
+}
+
+#[test]
 fn manifest_rejects_empty_detect_binaries() {
     // Given: a manifest with no detection binaries.
     let input =
