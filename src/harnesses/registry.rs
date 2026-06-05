@@ -1,6 +1,8 @@
 use super::types::{HarnessSpec, PackageSpec};
 use crate::runtimes::types::{IsolationSpec, SeedFile};
 
+mod dynamic;
+
 // ---------------------------------------------------------------------------
 // Shared seed content
 // ---------------------------------------------------------------------------
