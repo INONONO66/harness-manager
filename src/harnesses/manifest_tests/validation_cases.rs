@@ -165,4 +165,3 @@ fn manifest_rejects_nul_in_args() {
         "error should mention package.args, got: {err:#}"
     );
 }
-

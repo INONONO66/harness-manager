@@ -144,4 +144,3 @@ fn registry_rejects_symlink_manifest_escape() {
         "expected symlink rejection, got: {err:#}"
     );
 }
-

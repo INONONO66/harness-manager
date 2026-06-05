@@ -98,4 +98,3 @@ fn manifest_rejects_unknown_field() {
         "error should mention unknown field, got: {err:#}"
     );
 }
-

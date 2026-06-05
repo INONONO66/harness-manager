@@ -55,7 +55,9 @@ fn claude_declares_keychain_isolation_capability() {
         .expect("Claude Code runtime");
 
     assert_eq!(
-        c.keychain_isolation.expect("Claude keychain isolation").subdir,
+        c.keychain_isolation
+            .expect("Claude keychain isolation")
+            .subdir,
         "claude-keychain"
     );
 }
@@ -69,11 +71,12 @@ fn codex_isolation_has_seed_config() {
     let iso = codex.isolation.expect("isolation set");
     assert_eq!(iso.subdir, "codex");
     assert!(iso.spoof_home);
-    assert!(iso
-        .seed_files
-        .iter()
-        .any(|s| s.path.contains("config.toml")
-            && s.content.contains("analytics_enabled = false")));
+    assert!(
+        iso.seed_files
+            .iter()
+            .any(|s| s.path.contains("config.toml")
+                && s.content.contains("analytics_enabled = false"))
+    );
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use std::fs;
 
-use crate::isolation::{ensure_isolation_tree, purge_isolation_tree, IsolationPaths};
 use crate::isolation::spec::IsolationPlan;
+use crate::isolation::{ensure_isolation_tree, purge_isolation_tree, IsolationPaths};
 use crate::runtimes::types::IsolationSpec;
 
 use super::tmp_paths;

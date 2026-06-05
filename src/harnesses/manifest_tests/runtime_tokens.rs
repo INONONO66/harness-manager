@@ -49,7 +49,10 @@ overwrite = false"#,
             "{runtime_home}/.codex".to_string()
         )]
     );
-    assert_eq!(parsed.isolation.seed_files[0].path, "{runtime_home}/.codex/config.toml");
+    assert_eq!(
+        parsed.isolation.seed_files[0].path,
+        "{runtime_home}/.codex/config.toml"
+    );
 }
 
 #[test]
@@ -66,7 +69,11 @@ fn bundled_codex_harnesses_share_runtime_home() {
     for spec in codex_specs {
         assert_eq!(spec.isolation.runtime_subdir, "codex");
         assert!(
-            !spec.isolation.home_subdirs.iter().any(|subdir| subdir == ".codex"),
+            !spec
+                .isolation
+                .home_subdirs
+                .iter()
+                .any(|subdir| subdir == ".codex"),
             "{} must not pre-create a harness-local .codex directory",
             spec.id
         );
@@ -91,7 +98,10 @@ fn bundled_opencode_harnesses_share_runtime_home() {
         .collect();
 
     // When/Then: every OpenCode harness uses runtime XDG roots and avoids overlay OpenCode state.
-    assert!(!opencode_specs.is_empty(), "expected bundled OpenCode harnesses");
+    assert!(
+        !opencode_specs.is_empty(),
+        "expected bundled OpenCode harnesses"
+    );
     for spec in opencode_specs {
         let envs: BTreeMap<_, _> = spec.isolation.static_envs.iter().cloned().collect();
         assert_eq!(spec.detect_binaries, vec!["opencode"]);
@@ -105,12 +115,18 @@ fn bundled_opencode_harnesses_share_runtime_home() {
             "{} must not pre-create harness-local OpenCode state directories",
             spec.id
         );
-        assert_eq!(envs.get("XDG_CONFIG_HOME").map(String::as_str), Some("{runtime_home}/.config"));
+        assert_eq!(
+            envs.get("XDG_CONFIG_HOME").map(String::as_str),
+            Some("{runtime_home}/.config")
+        );
         assert_eq!(
             envs.get("XDG_DATA_HOME").map(String::as_str),
             Some("{runtime_home}/.local/share")
         );
-        assert_eq!(envs.get("XDG_CACHE_HOME").map(String::as_str), Some("{runtime_home}/.cache"));
+        assert_eq!(
+            envs.get("XDG_CACHE_HOME").map(String::as_str),
+            Some("{runtime_home}/.cache")
+        );
         assert_eq!(
             envs.get("XDG_STATE_HOME").map(String::as_str),
             Some("{runtime_home}/.local/state")
@@ -133,7 +149,10 @@ fn bundled_claude_harnesses_share_runtime_home() {
         .collect();
 
     // When/Then: every Claude harness inherits runtime config/plugin state.
-    assert!(!claude_specs.is_empty(), "expected bundled Claude harnesses");
+    assert!(
+        !claude_specs.is_empty(),
+        "expected bundled Claude harnesses"
+    );
     for spec in claude_specs {
         let envs: BTreeMap<_, _> = spec.isolation.static_envs.iter().cloned().collect();
         assert_eq!(spec.isolation.runtime_subdir, "claude");
@@ -160,4 +179,3 @@ fn bundled_claude_harnesses_share_runtime_home() {
         );
     }
 }
-

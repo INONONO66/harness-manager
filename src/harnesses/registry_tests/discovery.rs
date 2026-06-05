@@ -65,4 +65,3 @@ fn registry_rejects_duplicate_builtin_id() {
         "expected duplicate id error, got: {err:#}"
     );
 }
-

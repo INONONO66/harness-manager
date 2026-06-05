@@ -76,4 +76,3 @@ fn core_rust_sources_do_not_hardcode_builtin_harnesses() {
         offenders.join("\n")
     );
 }
-

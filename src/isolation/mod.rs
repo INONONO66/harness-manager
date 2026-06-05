@@ -80,10 +80,9 @@ impl IsolationPaths {
             .base
             .parent()
             .with_context(|| format!("isolation base has no parent: {}", self.base.display()))?;
-        let runtime_subdir = self
-            .runtime_base
-            .file_name()
-            .with_context(|| format!("runtime base has no leaf: {}", self.runtime_base.display()))?;
+        let runtime_subdir = self.runtime_base.file_name().with_context(|| {
+            format!("runtime base has no leaf: {}", self.runtime_base.display())
+        })?;
         Ok(runtime_root
             .join(".locks")
             .join(format!("{}.lock", runtime_subdir.to_string_lossy())))

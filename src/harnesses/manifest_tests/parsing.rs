@@ -47,4 +47,3 @@ fn manifest_parses_default_launch_args() {
     assert!(defaulted.launch_args.is_empty());
     assert_eq!(explicit.launch_args, vec!["run", "--fast"]);
 }
-
