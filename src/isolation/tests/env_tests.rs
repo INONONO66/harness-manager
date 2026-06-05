@@ -61,7 +61,7 @@ fn build_sanitized_env_strips_hostile_vars_and_uses_isolated_home() {
         ("OPENAI_API_KEY".to_string(), "leak".to_string()),
         ("CODEX_ACCESS_TOKEN".to_string(), "leak".to_string()),
         ("ANTHROPIC_API_KEY".to_string(), "leak".to_string()),
-        ("OMX_ROOT".to_string(), "/real/omx".to_string()),
+        ("PLUGIN_ROOT".to_string(), "/real/plugin".to_string()),
         ("XDG_DATA_HOME".to_string(), "/real/xdg".to_string()),
         ("NPM_TOKEN".to_string(), "leak".to_string()),
         ("SSH_AUTH_SOCK".to_string(), "/tmp/socket".to_string()),
@@ -81,7 +81,7 @@ fn build_sanitized_env_strips_hostile_vars_and_uses_isolated_home() {
     assert!(!env.contains_key("OPENAI_API_KEY"));
     assert!(!env.contains_key("CODEX_ACCESS_TOKEN"));
     assert!(!env.contains_key("ANTHROPIC_API_KEY"));
-    assert!(!env.contains_key("OMX_ROOT"));
+    assert!(!env.contains_key("PLUGIN_ROOT"));
     assert!(!env.contains_key("XDG_DATA_HOME"));
     assert!(!env.contains_key("NPM_TOKEN"));
     assert!(!env.contains_key("SSH_AUTH_SOCK"));

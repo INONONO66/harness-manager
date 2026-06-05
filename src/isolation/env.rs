@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use crate::runtimes::types::IsolationSpec;
-
+use super::spec::IsolationRecipe;
 use super::{subst_tokens, IsolationPaths};
 
 pub const GLOBAL_AI_STRIP: &[&str] = &[
@@ -27,12 +26,6 @@ pub const GLOBAL_AI_STRIP: &[&str] = &[
     "XDG_DATA_HOME",
     "XDG_CACHE_HOME",
     "XDG_STATE_HOME",
-    "OMX_ROOT",
-    "OMX_STATE_ROOT",
-    "OMX_TEAM_STATE_ROOT",
-    "OUROBOROS_CODEX_HOME",
-    "OUROBOROS_FAKE_HOME",
-    "OUROBOROS_OPENCODE_CONFIG_DIR",
 ];
 
 const SAFE_INHERITED_ENV: &[&str] = &[
@@ -66,14 +59,14 @@ fn is_safe_inherited_env_key(key: &str) -> bool {
 }
 
 pub fn build_isolation_env(
-    spec: &IsolationSpec,
+    spec: &(impl IsolationRecipe + ?Sized),
     paths: &IsolationPaths,
 ) -> HashMap<String, String> {
     let mut out = HashMap::new();
-    if spec.spoof_home {
+    if spec.spoof_home() {
         out.insert("HOME".to_string(), paths.home.to_string_lossy().to_string());
     }
-    for (k, v_template) in spec.static_envs {
+    for (k, v_template) in spec.static_envs() {
         out.insert(k.to_string(), subst_tokens(v_template, paths));
     }
     out
@@ -81,7 +74,7 @@ pub fn build_isolation_env(
 
 pub fn build_sanitized_isolation_env(
     inherited: &HashMap<String, String>,
-    spec: &IsolationSpec,
+    spec: &(impl IsolationRecipe + ?Sized),
     paths: &IsolationPaths,
 ) -> HashMap<String, String> {
     let mut out: HashMap<String, String> = inherited

@@ -1,0 +1,31 @@
+schema_version = 1
+id = "omx"
+display_name = "oh-my-codex"
+target_runtime = "Codex CLI"
+detect_binaries = ["omx"]
+
+[package]
+kind = "npm-global"
+package = "oh-my-codex"
+
+[isolation]
+subdir = "omx"
+spoof_home = true
+home_subdirs = [".codex"]
+caveat = "omx harness: Codex CLI with oh-my-codex. Run `omx setup` after first launch if needed."
+
+[isolation.static_envs]
+CODEX_HOME = "{home}/.codex"
+OMX_ROOT = "{home}/.omx"
+OMX_STATE_ROOT = "{state}/omx"
+OMX_TEAM_STATE_ROOT = "{state}/omx-team"
+
+[[isolation.seed_files]]
+path = "{home}/.codex/config.toml"
+content = '''
+analytics_enabled = false
+check_for_update_on_startup = false
+cli_auth_credentials_store = "file"
+mcp_oauth_credentials_store = "file"
+'''
+overwrite = false

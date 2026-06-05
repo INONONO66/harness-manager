@@ -8,14 +8,16 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use fs2::FileExt;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use crate::runtimes::types::IsolationSpec;
+use spec::IsolationRecipe;
 
 mod env;
 mod paths;
+pub mod spec;
 
 #[cfg(test)]
 pub use env::build_isolation_env;
@@ -52,15 +54,57 @@ pub struct IsolationPaths {
 }
 
 impl IsolationPaths {
-    pub fn try_from_spec(spec: &IsolationSpec) -> Result<Self> {
-        validate_relative_path(spec.subdir, "isolation subdir")?;
-        let base = hm_data_dir().join("runtimes").join(spec.subdir);
+    pub fn try_from_spec(spec: &(impl IsolationRecipe + ?Sized)) -> Result<Self> {
+        validate_relative_path(spec.subdir(), "isolation subdir")?;
+        let base = hm_data_dir().join("runtimes").join(spec.subdir());
         Ok(Self {
             home: base.join("home"),
             state: base.join("state"),
             tmp: base.join("tmp"),
             base,
         })
+    }
+
+    pub fn lock_file(&self) -> Result<PathBuf> {
+        let runtime_root = self
+            .base
+            .parent()
+            .with_context(|| format!("isolation base has no parent: {}", self.base.display()))?;
+        let subdir = self
+            .base
+            .file_name()
+            .with_context(|| format!("isolation base has no leaf: {}", self.base.display()))?;
+        Ok(runtime_root
+            .join(".locks")
+            .join(format!("{}.lock", subdir.to_string_lossy())))
+    }
+}
+
+pub struct IsolationLockGuard {
+    _file: fs::File,
+}
+
+impl IsolationLockGuard {
+    pub fn acquire(paths: &IsolationPaths) -> Result<Self> {
+        let root = isolation_root(paths)?;
+        let lock_file = paths.lock_file()?;
+        let lock_dir = lock_file
+            .parent()
+            .with_context(|| format!("lock file has no parent: {}", lock_file.display()))?;
+        ensure_under_base(lock_dir, &root, "isolation lock dir")?;
+        create_private_dir_all(lock_dir, &root, "isolation lock dir")?;
+        ensure_under_base(&lock_file, &root, "isolation lock")?;
+        reject_existing_symlink_chain(&lock_file, &root, "isolation lock")?;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_file)
+            .with_context(|| format!("open isolation lock {}", lock_file.display()))?;
+        file.lock_exclusive()
+            .with_context(|| format!("lock isolation {}", lock_file.display()))?;
+        Ok(Self { _file: file })
     }
 }
 
@@ -74,13 +118,16 @@ pub fn subst_tokens(template: &str, paths: &IsolationPaths) -> String {
 }
 
 /// Create the isolation tree: `home/`, `state/`, `tmp/`, plus all `home_subdirs`.
-pub fn ensure_isolation_tree(spec: &IsolationSpec, paths: &IsolationPaths) -> Result<()> {
+pub fn ensure_isolation_tree(
+    spec: &(impl IsolationRecipe + ?Sized),
+    paths: &IsolationPaths,
+) -> Result<()> {
     let root = isolation_root(paths)?;
     create_private_isolation_base(&paths.base, &root)?;
     create_private_dir_all(&paths.home, &paths.base, "isolation home")?;
     create_private_dir_all(&paths.state, &paths.base, "isolation state")?;
     create_private_dir_all(&paths.tmp, &paths.base, "isolation tmp")?;
-    for sub in spec.home_subdirs {
+    for sub in spec.home_subdirs() {
         if sub.is_empty() {
             continue;
         }
@@ -94,8 +141,8 @@ pub fn ensure_isolation_tree(spec: &IsolationSpec, paths: &IsolationPaths) -> Re
 /// Seed config files declared in `spec.seed_files`. Policy: create-if-missing.
 /// User edits to seeded files are preserved across launches.
 /// To reset a runtime to seed defaults, use `hm purge <runtime>` (Phase 3).
-pub fn seed_files(spec: &IsolationSpec, paths: &IsolationPaths) -> Result<()> {
-    for seed in spec.seed_files {
+pub fn seed_files(spec: &(impl IsolationRecipe + ?Sized), paths: &IsolationPaths) -> Result<()> {
+    for seed in spec.seed_files() {
         let path = PathBuf::from(subst_tokens(seed.path, paths));
         ensure_under_base(&path, &paths.base, "seed file")?;
         reject_existing_symlink_chain(&path, &paths.base, "seed file")?;

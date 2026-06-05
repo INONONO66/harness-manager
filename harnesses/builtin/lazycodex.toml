@@ -1,0 +1,29 @@
+schema_version = 1
+id = "lazycodex"
+display_name = "lazycodex"
+target_runtime = "Codex CLI"
+detect_binaries = ["lazycodex-ai"]
+launch_binary = "lazycodex-ai"
+
+[package]
+kind = "npx-installer"
+package = "lazycodex-ai"
+args = ["install"]
+
+[isolation]
+subdir = "lazycodex"
+spoof_home = true
+home_subdirs = [".codex"]
+
+[isolation.static_envs]
+CODEX_HOME = "{home}/.codex"
+
+[[isolation.seed_files]]
+path = "{home}/.codex/config.toml"
+content = '''
+analytics_enabled = false
+check_for_update_on_startup = false
+cli_auth_credentials_store = "file"
+mcp_oauth_credentials_store = "file"
+'''
+overwrite = false

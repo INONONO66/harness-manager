@@ -1,0 +1,17 @@
+schema_version = 1
+id = "bad-launch"
+display_name = "Bad Launch"
+target_runtime = "Codex CLI"
+detect_binaries = ["bad-launch"]
+launch_binary = "../codex"
+launch_args = []
+
+[package]
+kind = "manual"
+instructions = "manual"
+
+[isolation]
+spoof_home = true
+home_subdirs = [".codex"]
+static_envs = { CODEX_HOME = "{home}/.codex" }
+seed_files = []
