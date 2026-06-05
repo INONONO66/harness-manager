@@ -58,6 +58,13 @@ pub(super) fn validate_relative_path(path_label: &str, field: &str, value: &str)
 
 pub(super) fn validate_seed_path(path_label: &str, value: &str) -> Result<()> {
     ensure(
+        value.starts_with("{home}/")
+            || value.starts_with("{state}/")
+            || value.starts_with("{tmp}/"),
+        path_label,
+        "isolation.seed_files",
+    )?;
+    ensure(
         !value.starts_with("../"),
         path_label,
         "isolation.seed_files",

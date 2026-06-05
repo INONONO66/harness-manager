@@ -1,8 +1,41 @@
 use super::*;
 use crate::runtimes::registry::RUNTIMES;
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+struct EnvRestore {
+    home: Option<OsString>,
+    xdg_config_home: Option<OsString>,
+}
+
+impl EnvRestore {
+    fn capture() -> Self {
+        Self {
+            home: std::env::var_os("HOME"),
+            xdg_config_home: std::env::var_os("XDG_CONFIG_HOME"),
+        }
+    }
+}
+
+impl Drop for EnvRestore {
+    fn drop(&mut self) {
+        if let Some(value) = &self.home {
+            std::env::set_var("HOME", value);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        if let Some(value) = &self.xdg_config_home {
+            std::env::set_var("XDG_CONFIG_HOME", value);
+        } else {
+            std::env::remove_var("XDG_CONFIG_HOME");
+        }
+    }
+}
 
 const FORBIDDEN_CORE_HARNESS_TERMS: &[&str] = &[
     concat!("o", "mx"),
@@ -179,6 +212,36 @@ fn registry_from_sources_does_not_read_process_env() {
     assert!(first.find("second").is_none());
     assert!(second.find("second").is_some());
     assert!(second.find("first").is_none());
+}
+
+#[test]
+fn registry_load_from_env_does_not_fallback_to_process_xdg() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let process_home = temp.path().join("process-home");
+    for root in [
+        process_home.join(".config"),
+        process_home.join("Library").join("Application Support"),
+    ] {
+        let harness_dir = root.join("hm").join("harnesses.d");
+        fs::create_dir_all(&harness_dir).unwrap();
+        fs::write(harness_dir.join("leaked.toml"), demo_manifest("leaked")).unwrap();
+    }
+
+    let _restore = EnvRestore::capture();
+    std::env::set_var("HOME", &process_home);
+    std::env::remove_var("XDG_CONFIG_HOME");
+    let registry = HarnessRegistry::load_from_env(&HarnessDiscoveryEnv {
+        xdg_config_home: None,
+        xdg_data_home: None,
+        home: Some(temp.path().join("provided-home")),
+    })
+    .unwrap();
+
+    assert!(
+        registry.find("leaked").is_none(),
+        "load_from_env must use the provided discovery env only"
+    );
 }
 
 #[test]

@@ -95,6 +95,43 @@ overwrite = true
 }
 
 #[test]
+fn manifest_rejects_bare_seed_path_before_side_effects() {
+    // Given: a manifest that writes to an unrooted path.
+    let input = minimal_manifest(
+        r#"
+[[isolation.seed_files]]
+path = "config.toml"
+content = "unsafe"
+overwrite = true
+"#,
+    );
+
+    // When: the manifest is parsed.
+    let err = parse_toml("demo.toml", &input).expect_err("bare seed path must fail");
+
+    // Then: conversion rejects the path at the manifest boundary.
+    assert!(
+        err.to_string().contains("seed_files"),
+        "error should mention seed_files, got: {err:#}"
+    );
+}
+
+#[test]
+fn manifest_rejects_runtime_binary_id_collision() {
+    // Given: a manifest id that would shadow the Codex runtime command.
+    let input = minimal_manifest("").replace(r#"id = "demo""#, r#"id = "codex""#);
+
+    // When: the manifest is parsed.
+    let err = parse_toml("shadow.toml", &input).expect_err("runtime collision must fail");
+
+    // Then: conversion rejects the ambiguous id before command routing.
+    assert!(
+        err.to_string().contains("id"),
+        "error should mention id, got: {err:#}"
+    );
+}
+
+#[test]
 fn manifest_rejects_empty_detect_binaries() {
     // Given: a manifest with no detection binaries.
     let input =

@@ -120,12 +120,6 @@ fn discover_config_sources(env: &HarnessDiscoveryEnv) -> Result<Vec<HarnessSourc
     if let Some(root) = &env.xdg_config_home {
         return discover_harness_dir(&root.join("hm").join("harnesses.d"));
     }
-    if let Some(root) = dirs::config_dir() {
-        let sources = discover_harness_dir(&root.join("hm").join("harnesses.d"))?;
-        if !sources.is_empty() {
-            return Ok(sources);
-        }
-    }
     let Some(home) = &env.home else {
         return Ok(Vec::new());
     };
@@ -133,15 +127,11 @@ fn discover_config_sources(env: &HarnessDiscoveryEnv) -> Result<Vec<HarnessSourc
 }
 
 fn discover_data_sources(env: &HarnessDiscoveryEnv) -> Result<Vec<HarnessSource>> {
-    let root = env
-        .xdg_data_home
-        .clone()
-        .or_else(dirs::data_dir)
-        .or_else(|| {
-            env.home
-                .as_ref()
-                .map(|home| home.join(".local").join("share"))
-        });
+    let root = env.xdg_data_home.clone().or_else(|| {
+        env.home
+            .as_ref()
+            .map(|home| home.join(".local").join("share"))
+    });
     let Some(root) = root else {
         return Ok(Vec::new());
     };

@@ -117,6 +117,11 @@ fn convert_manifest(path_label: &str, manifest: HarnessManifest) -> Result<Manif
     ensure(manifest.schema_version == 1, path_label, "schema_version")?;
     validate_id(path_label, &manifest.id)?;
     ensure(
+        !manifest_id_conflicts_with_runtime(&manifest.id),
+        path_label,
+        "id",
+    )?;
+    ensure(
         RUNTIMES
             .iter()
             .any(|runtime| runtime.name == manifest.target_runtime),
@@ -180,6 +185,24 @@ fn convert_package(path_label: &str, package: PackageManifest) -> Result<Manifes
             ManifestPackageSpec::Manual { instructions }
         }
     })
+}
+
+fn manifest_id_conflicts_with_runtime(id: &str) -> bool {
+    RUNTIMES.iter().any(|runtime| {
+        runtime.binary_names.contains(&id) || normalize_runtime_name(runtime.name) == id
+    })
+}
+
+fn normalize_runtime_name(name: &str) -> String {
+    let mut normalized = String::with_capacity(name.len());
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() {
+            normalized.push(byte.to_ascii_lowercase() as char);
+        } else if !normalized.ends_with('-') {
+            normalized.push('-');
+        }
+    }
+    normalized.trim_end_matches('-').to_string()
 }
 
 fn convert_isolation(
