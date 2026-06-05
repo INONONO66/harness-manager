@@ -1,9 +1,9 @@
-use super::builtin_specs;
+use super::{builtin_specs, BUILTIN_MANIFESTS};
 use crate::harnesses::manifest::ManifestPackageSpec;
 use std::collections::HashSet;
 
 #[test]
-fn builtin_manifests_parse_all_five() {
+fn builtin_manifests_parse_all_indexed_entries() {
     // Given: the bundled harness manifests.
     let specs = builtin_specs().expect("builtins parse");
 
@@ -11,7 +11,7 @@ fn builtin_manifests_parse_all_five() {
     let unique_ids: HashSet<&str> = specs.iter().map(|spec| spec.id.as_str()).collect();
 
     // Then: every bundled manifest is represented exactly once.
-    assert_eq!(specs.len(), 5);
+    assert_eq!(specs.len(), BUILTIN_MANIFESTS.len());
     assert_eq!(unique_ids.len(), specs.len());
 }
 

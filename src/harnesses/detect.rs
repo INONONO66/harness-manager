@@ -171,10 +171,13 @@ seed_files = []
     }
 
     #[test]
-    fn detect_all_builtin_only_returns_five() {
+    fn detect_all_builtin_only_returns_indexed_builtins() {
         let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
         let results = detect_all(&registry);
 
-        assert_eq!(results.len(), 5);
+        assert_eq!(
+            results.len(),
+            crate::harnesses::builtin::BUILTIN_MANIFESTS.len()
+        );
     }
 }
