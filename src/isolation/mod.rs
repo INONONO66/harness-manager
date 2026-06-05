@@ -22,6 +22,7 @@ pub mod spec;
 #[cfg(test)]
 pub use env::build_isolation_env;
 pub use env::{build_sanitized_isolation_env, GLOBAL_AI_STRIP};
+pub use paths::ensure_safe_write_path;
 use paths::{
     create_private_dir_all, create_private_isolation_base, ensure_under_base, isolation_root,
     reject_existing_symlink_chain, validate_relative_path,

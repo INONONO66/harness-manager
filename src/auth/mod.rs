@@ -1,6 +1,7 @@
 pub mod login;
 
 use crate::runtimes;
+use crate::runtimes::registry::RuntimeRegistry;
 use colored::Colorize;
 
 const ENV_VARS_TO_CHECK: &[&str] = &[
@@ -19,8 +20,8 @@ const ENV_VARS_TO_CHECK: &[&str] = &[
     "NO_PROXY",
 ];
 
-pub fn run_auth_status() -> anyhow::Result<()> {
-    let results = runtimes::detect_all();
+pub fn run_auth_status(registry: &RuntimeRegistry) -> anyhow::Result<()> {
+    let results = runtimes::detect_all(registry);
     let installed: Vec<_> = results.iter().filter(|r| r.installed).collect();
 
     if installed.is_empty() {

@@ -6,6 +6,8 @@ mod package;
 pub mod registry;
 pub mod types;
 
-pub fn load_registry() -> anyhow::Result<registry::HarnessRegistry> {
-    registry::HarnessRegistry::load()
+pub fn load_registry(
+    runtimes: &crate::runtimes::registry::RuntimeRegistry,
+) -> anyhow::Result<registry::HarnessRegistry> {
+    registry::HarnessRegistry::load(runtimes)
 }

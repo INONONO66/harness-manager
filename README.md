@@ -140,7 +140,7 @@ Full schema and plugin packaging guidance: [docs/harness-manifest.md](docs/harne
 
 `hm` treats harness manifests as untrusted input and validates the complete registry before side effects. Invalid manifests block the operation before package managers run, launch envs are built, files are seeded, or isolation directories are removed.
 
-- Duplicate harness IDs fail closed. User manifests cannot override bundled IDs.
+- A user harness manifest with the same id or alias as a bundled harness overrides the builtin and prints `note:` to stderr. Byte-identical copies (e.g. fresh `hm init` output) are silent. A single user manifest that would shadow MULTIPLE bundled harnesses fails closed; two user manifests sharing a route also fail closed.
 - Harness IDs cannot shadow runtime commands such as `codex`.
 - Launch binaries must be executable names, not paths or shell snippets.
 - Package install strategies are structured: `npm-global`, `npx-installer`, `bunx-installer`, `python-tool`, or `manual`.
@@ -148,19 +148,20 @@ Full schema and plugin packaging guidance: [docs/harness-manifest.md](docs/harne
 - Seed files must live under `{home}/`, `{runtime_home}/`, `{state}/`, or `{tmp}/`; static envs may also use `{runtime_home}`, `{runtime_state}`, and `{runtime_logs}` for target-runtime shared state/log paths. Harness-specific plugin state belongs under `{home}` or `{state}`; runtime session DBs, auth, MCP config, and runtime plugins should point at `{runtime_home}`.
 - Side-effecting operations take a per-target-runtime lock under `$XDG_DATA_HOME/hm/runtimes/.locks`.
 
-## Configuration
+## Profiles And Proxy Gateway
 
-Create `~/.config/hm/config.toml`:
+Create `~/.config/hm/config.toml`. The recommended block for routing every provider through one gateway is `[profiles.<name>.gateway]`. Legacy `[profiles.<name>.llm]` still works as a single-provider fallback (see Runtime Support below).
 
 ```toml
 default_profile = "proxy"
 
 [profiles.proxy]
-description = "Route through proxy gateway"
+description = "Route Anthropic, OpenAI, and Google through one gateway"
 
-[profiles.proxy.llm]
-endpoint = "https://your-proxy.example.com/v1"
+[profiles.proxy.gateway]
+base_url = "https://proxy.example.com/v1"
 bearer = "secret://file:///path/to/bearer-token"
+providers = ["anthropic", "openai", "google"]
 
 [profiles.proxy.network]
 http_proxy = "http://127.0.0.1:3128"
@@ -169,6 +170,18 @@ no_proxy = "localhost,127.0.0.1"
 
 [profiles.direct]
 description = "Direct API access"
+
+[profiles.legacy.llm]
+endpoint = "https://your-proxy.example.com/v1"
+bearer = "secret://file:///path/to/bearer-token"
+```
+
+Optional per-provider header overrides (for example to send both `x-api-key` and `Authorization` to a provider):
+
+```toml
+[profiles.proxy.gateway.provider_headers.anthropic]
+"x-api-key" = "{bearer}"
+"Authorization" = "Bearer {bearer}"
 ```
 
 Secret references keep credentials out of config files:
@@ -177,18 +190,78 @@ Secret references keep credentials out of config files:
 secret://file:///path/to/file
 secret://env/VAR_NAME
 secret://keychain/service-name
+secret://hm/<secret-name>          # hm's own secret store
 ```
 
 ## Runtime Support
 
-Runtime detection and injection are still native to the core because runtimes define auth probing and endpoint semantics.
+Runtimes are declarative TOML manifests, not Rust statics. Built-ins live in `runtimes/builtin/*.toml` and are compiled into the binary; users drop additional manifests under:
 
-| Runtime | Detection | Auth | Injection |
-|---|---|---|---|
-| Claude Code | `claude` binary + `~/.claude/` | OAuth + Keychain + env | `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` |
-| Codex CLI | `codex` binary + `~/.codex/` | ChatGPT OAuth + env | `OPENAI_BASE_URL` + `OPENAI_API_KEY` |
-| OpenCode | `opencode` binary + `~/.config/opencode/` | Provider auth + env | `OPENAI_BASE_URL` + `OPENAI_API_KEY` |
-| Pi | `pi` binary + `~/.pi/` | Token file | - |
+```text
+$XDG_CONFIG_HOME/hm/runtimes.d/*.toml
+$XDG_DATA_HOME/hm/runtimes.d/*.toml
+$XDG_DATA_HOME/hm/plugins/*/runtime.toml
+```
+
+Each manifest declares one of two injection strategies. `hm` validates the full registry before any side effect. User runtime manifests with the same normalized binary name or display name as a builtin override the builtin (with a `note:` on stderr unless the file is byte-identical to the embedded copy). A single user manifest that would shadow MULTIPLE builtins fails closed, and two user manifests sharing a route also fail closed.
+
+| Runtime | Detection | Auth | Strategy | Injection |
+|---|---|---|---|---|
+| Claude Code | `claude` binary + `~/.claude/` | OAuth + Keychain + env | `env` | `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` (with `/v1` stripped) |
+| Codex CLI | `codex` binary + `~/.codex/` | ChatGPT OAuth + env | `env` | `OPENAI_BASE_URL` + `OPENAI_API_KEY` |
+| OpenCode | `opencode` binary + `~/.config/opencode/` | Provider auth + env | `provider-config-seed` | seeds `~/.config/opencode/opencode.json` `provider.<id>.options.{baseURL,apiKey,headers}` for every gateway provider; falls back to `[profiles.X.llm]` as single-provider `openai` seed |
+| Pi | `pi` binary + `~/.pi/agent/` | Token file | `provider-config-seed` | seeds `~/.pi/agent/models.json` `providers.<id>.{baseUrl,apiKey,headers}` for every gateway provider |
+
+The two strategies are the only ones in core. Per-runtime knowledge lives in the manifest.
+
+### Injection strategy 1: `env` (single-provider runtimes)
+
+```toml
+[injection]
+strategy = "env"
+provider = "anthropic"
+supported_providers = ["anthropic"]
+endpoint_env = "ANTHROPIC_BASE_URL"
+api_key_env = "ANTHROPIC_API_KEY"
+strip_envs = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"]
+endpoint_strip_v1 = true
+```
+
+`hm use claude --profile proxy` strips `strip_envs` from the child env, then sets `endpoint_env` and `api_key_env` from the active profile's gateway. If no gateway is present and the legacy `[profiles.X.llm]` block is, hm falls back to that single endpoint/bearer.
+
+### Injection strategy 2: `provider-config-seed` (multi-provider runtimes)
+
+```toml
+[injection]
+strategy = "provider-config-seed"
+config_path = "{home}/.config/opencode/opencode.json"
+root_key = "provider"
+provider_base_url_key = "options.baseURL"
+provider_api_key_key = "options.apiKey"
+provider_headers_key = "options.headers"
+supported_providers = ["anthropic", "openai", "google", "openrouter", "groq", "xai", ...]
+overwrite = false
+endpoint_strip_v1 = false
+legacy_provider = "openai"
+
+[injection.provider_header_overrides.anthropic]
+"x-api-key" = "{bearer}"
+"Authorization" = "Bearer {bearer}"
+```
+
+`hm use opencode --profile proxy` writes a JSON file under the isolation home (never the user's real `~`). The file is deep-merged into any existing user content. `legacy_provider` (optional) tells the strategy how to fall back to `[profiles.X.llm]`: hm seeds that one provider with `llm.endpoint` and `llm.bearer`.
+
+Adding a new runtime requires only a TOML file. No Rust change.
+
+### Security
+
+- Duplicate runtime routes (normalized binary names and display names) fail closed at registry load.
+- `config_path` for seed strategy must live under `{home}/`.
+- Seed file writes refuse to follow any symlink chain out of the isolation home.
+- Existing seed JSON that fails to parse is preserved (never silently overwritten when `overwrite = false`).
+- Header values are validated for CRLF/NUL/control chars BEFORE and AFTER `{bearer}` substitution.
+- Static env keys cannot be host secrets such as `*_TOKEN`, `*_SECRET`, or `*_API_KEY`.
+- Auth-probe paths (including keychain marker files) must be relative.
 
 ## Architecture
 
@@ -196,13 +269,21 @@ Runtime detection and injection are still native to the core because runtimes de
 src/
   main.rs              CLI routing
   cli/mod.rs           clap command definitions
-  runtimes/            runtime detection, auth probing, and injection specs
-  harnesses/           manifest parser, registry, package commands, install flow
+  runtimes/            runtime TOML manifest parser, registry, sandboxed detection
+    builtin.rs           built-in manifest index (codegen from build.rs)
+    manifest.rs          owned types + validation + parse_toml
+    registry/dynamic.rs  RuntimeRegistry::load (builtins + user/plugin discovery)
+    auth.rs              per-variant auth probe dispatch
+  harnesses/           harness manifest parser, registry, package commands, install flow
   isolation/           isolated env, seed files, path safety, locks
-  config/              profile config parsing and secret references
-  launch/              hm use target resolution and exec
-  inject/              hm inject plan dry-run
+  config/              profile config parsing + gateway schema + secret references
+  launch/
+    injection.rs         the only place that knows env vs config-seed strategy
+    target.rs            runtime/harness resolution
+    mod.rs               run_use and exec
+  inject/mod.rs        hm inject plan dry-run (calls validate_provider_config_seed)
 
+runtimes/builtin/      bundled runtime TOML manifests (claude, codex, opencode, pi)
 harnesses/builtin/     bundled harness TOML manifests
 docs/                  manifest authoring guide
 ```

@@ -2,20 +2,12 @@ use std::fs;
 
 use crate::isolation::spec::IsolationPlan;
 use crate::isolation::{ensure_isolation_tree, purge_isolation_tree, IsolationPaths};
-use crate::runtimes::types::IsolationSpec;
 
-use super::tmp_paths;
+use super::{iso_plan, tmp_paths};
 
 #[test]
 fn try_from_spec_rejects_parent_dir_runtime_subdir() {
-    let spec = IsolationSpec {
-        subdir: "../codex",
-        spoof_home: true,
-        home_subdirs: &[".codex"],
-        static_envs: &[],
-        seed_files: &[],
-        caveat: None,
-    };
+    let spec = iso_plan("../codex", true, &[".codex"], &[], Vec::new(), None);
 
     let result = IsolationPaths::try_from_spec(&spec);
 
@@ -29,14 +21,7 @@ fn try_from_spec_rejects_parent_dir_runtime_subdir() {
 fn ensure_tree_rejects_absolute_home_subdir() {
     let p = tmp_paths("absolute-home-subdir");
     let _ = fs::remove_dir_all(&p.base);
-    let spec = IsolationSpec {
-        subdir: "test",
-        spoof_home: true,
-        home_subdirs: &["/tmp/escaped"],
-        static_envs: &[],
-        seed_files: &[],
-        caveat: None,
-    };
+    let spec = iso_plan("test", true, &["/tmp/escaped"], &[], Vec::new(), None);
 
     let result = ensure_isolation_tree(&spec, &p);
 
@@ -111,14 +96,7 @@ fn ensure_tree_rejects_symlinked_home() {
     fs::create_dir_all(&p.base).unwrap();
     fs::create_dir_all(&outside.home).unwrap();
     symlink(&outside.home, &p.home).unwrap();
-    let spec = IsolationSpec {
-        subdir: "test",
-        spoof_home: true,
-        home_subdirs: &[],
-        static_envs: &[],
-        seed_files: &[],
-        caveat: None,
-    };
+    let spec = iso_plan("test", true, &[], &[], Vec::new(), None);
 
     let result = ensure_isolation_tree(&spec, &p);
 
@@ -156,14 +134,7 @@ fn ensure_tree_rejects_symlinked_runtimes_ancestor() {
         runtime_state: hm_root.join("runtimes/codex/state"),
         runtime_logs: hm_root.join("runtimes/codex/state/logs"),
     };
-    let spec = IsolationSpec {
-        subdir: "sample-harness",
-        spoof_home: true,
-        home_subdirs: &[".codex"],
-        static_envs: &[],
-        seed_files: &[],
-        caveat: None,
-    };
+    let spec = iso_plan("sample-harness", true, &[".codex"], &[], Vec::new(), None);
 
     let result = ensure_isolation_tree(&spec, &p);
 
@@ -226,7 +197,8 @@ fn purge_rejects_symlinked_runtimes_ancestor() {
 fn all_registered_harnesses_have_distinct_isolation_roots() {
     let mut roots = std::collections::HashSet::new();
 
-    let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
+    let runtimes = crate::runtimes::registry::RuntimeRegistry::builtin_only().unwrap();
+    let registry = crate::harnesses::registry::HarnessRegistry::builtin_only(&runtimes).unwrap();
     for harness in registry.specs() {
         let paths = IsolationPaths::try_from_spec(&harness.isolation).unwrap();
         assert!(

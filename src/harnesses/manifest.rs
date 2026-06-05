@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 use crate::isolation::spec::{IsolationPlan, SeedFilePlan};
-use crate::runtimes::registry::RUNTIMES;
+use crate::runtimes::registry::RuntimeRegistry;
 
 mod validation;
 
@@ -105,7 +105,11 @@ struct SeedFileManifest {
     mode: Option<String>,
 }
 
-pub fn parse_toml(path_label: &str, input: &str) -> Result<ManifestHarnessSpec> {
+pub fn parse_toml(
+    path_label: &str,
+    input: &str,
+    runtimes: &RuntimeRegistry,
+) -> Result<ManifestHarnessSpec> {
     if input.len() > MAX_MANIFEST_BYTES {
         bail!("{path_label}: manifest exceeds 64 KiB");
     }
@@ -113,14 +117,18 @@ pub fn parse_toml(path_label: &str, input: &str) -> Result<ManifestHarnessSpec> 
     let manifest: HarnessManifest = toml_edit::de::from_str(input).with_context(|| {
         format!("{path_label}: failed to parse manifest (package.kind or unknown field)")
     })?;
-    convert_manifest(path_label, manifest)
+    convert_manifest(path_label, manifest, runtimes)
 }
 
-fn convert_manifest(path_label: &str, manifest: HarnessManifest) -> Result<ManifestHarnessSpec> {
+fn convert_manifest(
+    path_label: &str,
+    manifest: HarnessManifest,
+    runtimes: &RuntimeRegistry,
+) -> Result<ManifestHarnessSpec> {
     ensure(manifest.schema_version == 1, path_label, "schema_version")?;
     validate_id(path_label, &manifest.id)?;
     ensure(
-        !manifest_id_conflicts_with_runtime(&manifest.id),
+        !runtimes.id_conflicts_with_runtime(&manifest.id),
         path_label,
         "id",
     )?;
@@ -128,18 +136,22 @@ fn convert_manifest(path_label: &str, manifest: HarnessManifest) -> Result<Manif
         validate_id(path_label, alias)?;
         ensure(alias != &manifest.id, path_label, "aliases")?;
         ensure(
-            !manifest_id_conflicts_with_runtime(alias),
+            !runtimes.id_conflicts_with_runtime(alias),
             path_label,
             "aliases",
         )?;
     }
-    ensure(
-        RUNTIMES
-            .iter()
-            .any(|runtime| runtime.name == manifest.target_runtime),
-        path_label,
-        "target_runtime",
-    )?;
+    let target_runtime = runtimes
+        .find(&manifest.target_runtime)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "{}: invalid target_runtime '{}'",
+                path_label,
+                manifest.target_runtime
+            )
+        })?
+        .name
+        .clone();
     ensure(
         !manifest.detect_binaries.is_empty(),
         path_label,
@@ -157,15 +169,16 @@ fn convert_manifest(path_label: &str, manifest: HarnessManifest) -> Result<Manif
     let isolation = convert_isolation(
         path_label,
         &manifest.id,
-        &manifest.target_runtime,
+        &target_runtime,
         manifest.isolation,
+        runtimes,
     )?;
 
     Ok(ManifestHarnessSpec {
         id: manifest.id,
         aliases: manifest.aliases,
         display_name: manifest.display_name,
-        target_runtime: manifest.target_runtime,
+        target_runtime,
         package,
         detect_binaries: manifest.detect_binaries,
         launch_binary: manifest.launch_binary,
@@ -205,32 +218,15 @@ fn convert_package(path_label: &str, package: PackageManifest) -> Result<Manifes
     })
 }
 
-fn manifest_id_conflicts_with_runtime(id: &str) -> bool {
-    RUNTIMES.iter().any(|runtime| {
-        runtime.binary_names.contains(&id) || normalize_runtime_name(runtime.name) == id
-    })
-}
-
-fn normalize_runtime_name(name: &str) -> String {
-    let mut normalized = String::with_capacity(name.len());
-    for byte in name.bytes() {
-        if byte.is_ascii_alphanumeric() {
-            normalized.push(byte.to_ascii_lowercase() as char);
-        } else if !normalized.ends_with('-') {
-            normalized.push('-');
-        }
-    }
-    normalized.trim_end_matches('-').to_string()
-}
-
 fn convert_isolation(
     path_label: &str,
     id: &str,
     target_runtime: &str,
     isolation: IsolationManifest,
+    runtimes: &RuntimeRegistry,
 ) -> Result<IsolationPlan> {
     let subdir = isolation.subdir.unwrap_or_else(|| id.to_string());
-    let runtime_subdir = target_runtime_subdir(target_runtime);
+    let runtime_subdir = runtimes.target_runtime_subdir(target_runtime);
     validate_relative_path(path_label, "isolation.subdir", &subdir)?;
     for subdir in &isolation.home_subdirs {
         validate_relative_path(path_label, "isolation.home_subdirs", subdir)?;
@@ -264,15 +260,6 @@ fn convert_isolation(
         seed_files,
         caveat: isolation.caveat,
     })
-}
-
-fn target_runtime_subdir(target_runtime: &str) -> String {
-    RUNTIMES
-        .iter()
-        .find(|runtime| runtime.name == target_runtime)
-        .and_then(|runtime| runtime.isolation.map(|isolation| isolation.subdir))
-        .map(str::to_string)
-        .unwrap_or_else(|| normalize_runtime_name(target_runtime))
 }
 
 #[cfg(test)]

@@ -30,54 +30,46 @@ fn harness_labels(registry: &harnesses::registry::HarnessRegistry) -> String {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    let runtimes = runtimes::registry::RuntimeRegistry::load()?;
+
     match cli.command {
         Commands::Detect => {
-            detect::run_detect()?;
+            detect::run_detect(&runtimes)?;
         }
 
         Commands::Harness { action } => match action {
             HarnessAction::List => {
-                let registry = harnesses::load_registry()?;
+                let registry = harnesses::load_registry(&runtimes)?;
                 let detected = harnesses::detect::detect_all(&registry);
                 harnesses::detect::render_table(&detected);
             }
             HarnessAction::Install { name } => {
-                let registry = harnesses::load_registry()?;
+                let registry = harnesses::load_registry(&runtimes)?;
                 harnesses::install::install(&registry, &name)?;
             }
             HarnessAction::Update { name } => {
-                let registry = harnesses::load_registry()?;
+                let registry = harnesses::load_registry(&runtimes)?;
                 harnesses::install::update(&registry, &name)?;
             }
             HarnessAction::Remove { name, purge } => {
-                let registry = harnesses::load_registry()?;
+                let registry = harnesses::load_registry(&runtimes)?;
                 harnesses::install::remove(&registry, &name, purge)?;
             }
         },
 
         Commands::Auth { action } => match action {
             AuthAction::Status => {
-                auth::run_auth_status()?;
+                auth::run_auth_status(&runtimes)?;
             }
             AuthAction::Login { runtime } => {
-                auth::login::run_auth_login(&runtime)?;
+                auth::login::run_auth_login(&runtimes, &runtime)?;
             }
         },
 
         Commands::Inject { action } => match action {
             InjectAction::Plan { target, profile } => {
-                let registry = harnesses::load_registry()?;
-                inject::run_inject_plan(&registry, &target, &profile)?;
-            }
-            InjectAction::Apply {
-                target,
-                profile,
-                persist,
-            } => {
-                inject::run_inject_apply(&target, &profile, persist)?;
-            }
-            InjectAction::Reset { target } => {
-                inject::run_inject_reset(&target)?;
+                let registry = harnesses::load_registry(&runtimes)?;
+                inject::run_inject_plan(&runtimes, &registry, &target, &profile)?;
             }
         },
 
@@ -104,7 +96,7 @@ fn main() -> anyhow::Result<()> {
             harness,
             args,
         } => {
-            let registry = harnesses::load_registry()?;
+            let registry = harnesses::load_registry(&runtimes)?;
             if harness && registry.find(&runtime).is_none() {
                 anyhow::bail!(
                     "--harness target '{}' is not registered. Available harnesses: {}. Run `hm harness list` for status.",
@@ -113,6 +105,7 @@ fn main() -> anyhow::Result<()> {
                 );
             }
             launch::run_use(
+                &runtimes,
                 &registry,
                 &runtime,
                 profile.as_deref(),
@@ -127,7 +120,7 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("unexpected empty external subcommand");
             }
             let name = &args[0];
-            let registry = harnesses::load_registry()?;
+            let registry = harnesses::load_registry(&runtimes)?;
             if registry.find(name).is_none() {
                 anyhow::bail!(
                     "unknown command: '{}'. Try `hm --help`, a runtime via `hm use <runtime>`, or one of these harnesses: {}.",
@@ -136,7 +129,7 @@ fn main() -> anyhow::Result<()> {
                 );
             }
             let extra: Vec<String> = args[1..].to_vec();
-            launch::run_use(&registry, name, None, false, false, &extra)?;
+            launch::run_use(&runtimes, &registry, name, None, false, false, &extra)?;
         }
     }
 

@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::*;
 use crate::harnesses::manifest::ManifestPackageSpec;
 
 fn rust_sources_under(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -28,7 +27,7 @@ fn package_name(package: &ManifestPackageSpec) -> Option<&str> {
 
 #[test]
 fn core_rust_sources_do_not_hardcode_builtin_harnesses() {
-    let registry = HarnessRegistry::builtin_only().unwrap();
+    let registry = super::builtin_registry().unwrap();
     let forbidden_terms: Vec<&str> = registry
         .specs()
         .iter()

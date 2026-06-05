@@ -115,7 +115,23 @@ fn alias_label(aliases: &[String]) -> String {
 mod tests {
     use super::*;
     use crate::harnesses::types::{HarnessSpec, PackageSpec};
-    use crate::runtimes::types::IsolationSpec;
+    use crate::isolation::spec::IsolationPlan;
+
+    fn test_runtimes() -> crate::runtimes::registry::RuntimeRegistry {
+        crate::runtimes::registry::RuntimeRegistry::builtin_only().unwrap()
+    }
+
+    fn empty_iso(subdir: &str) -> IsolationPlan {
+        IsolationPlan {
+            subdir: subdir.to_string(),
+            runtime_subdir: subdir.to_string(),
+            spoof_home: false,
+            home_subdirs: Vec::new(),
+            static_envs: Vec::new(),
+            seed_files: Vec::new(),
+            caveat: None,
+        }
+    }
 
     #[test]
     fn detect_one_finds_sh() {
@@ -128,14 +144,7 @@ mod tests {
                 instructions: "".to_string(),
             },
             detect_binaries: vec!["sh".to_string()],
-            isolation: crate::isolation::spec::IsolationPlan::from_runtime(&IsolationSpec {
-                subdir: "test",
-                spoof_home: false,
-                home_subdirs: &[],
-                static_envs: &[],
-                seed_files: &[],
-                caveat: None,
-            }),
+            isolation: empty_iso("test"),
             launch_binary: None,
             launch_args: Vec::new(),
         };
@@ -155,14 +164,7 @@ mod tests {
                 instructions: "".to_string(),
             },
             detect_binaries: vec!["nonexistent-binary-xyz-99".to_string()],
-            isolation: crate::isolation::spec::IsolationPlan::from_runtime(&IsolationSpec {
-                subdir: "test",
-                spoof_home: false,
-                home_subdirs: &[],
-                static_envs: &[],
-                seed_files: &[],
-                caveat: None,
-            }),
+            isolation: empty_iso("test"),
             launch_binary: None,
             launch_args: Vec::new(),
         };
@@ -173,8 +175,9 @@ mod tests {
 
     #[test]
     fn detect_all_returns_registered_harnesses() {
-        let registry = crate::harnesses::registry::HarnessRegistry::from_sources(&[
-            crate::harnesses::registry::HarnessSource::manifest(
+        let runtimes = test_runtimes();
+        let registry = crate::harnesses::registry::HarnessRegistry::from_sources(
+            &[crate::harnesses::registry::HarnessSource::manifest(
                 "detect-plugin.toml",
                 r#"
 schema_version = 1
@@ -194,8 +197,9 @@ home_subdirs = [".codex"]
 static_envs = { CODEX_HOME = "{home}/.codex" }
 seed_files = []
 "#,
-            ),
-        ])
+            )],
+            &runtimes,
+        )
         .unwrap();
 
         let results = detect_all(&registry);
@@ -208,7 +212,8 @@ seed_files = []
 
     #[test]
     fn detect_all_builtin_only_returns_indexed_builtins() {
-        let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
+        let registry =
+            crate::harnesses::registry::HarnessRegistry::builtin_only(&test_runtimes()).unwrap();
         let results = detect_all(&registry);
 
         assert_eq!(

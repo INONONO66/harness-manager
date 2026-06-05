@@ -57,6 +57,15 @@ pub(super) fn reject_existing_symlink_chain(path: &Path, base: &Path, label: &st
     Ok(())
 }
 
+/// Validate that `path` is safe to read/write within `home_base`.
+/// Rejects parent-dir traversal, paths outside `home_base`, and any existing
+/// symlink in the path chain (including the final file).
+pub fn ensure_safe_write_path(path: &Path, home_base: &Path, label: &str) -> Result<()> {
+    ensure_under_base(path, home_base, label)?;
+    reject_existing_symlink_chain(path, home_base, label)?;
+    Ok(())
+}
+
 pub(super) fn isolation_root(paths: &IsolationPaths) -> Result<PathBuf> {
     let runtimes = paths
         .base

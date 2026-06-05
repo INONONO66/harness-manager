@@ -5,14 +5,19 @@ use crate::harnesses::package::{build_install_cmd, build_uninstall_cmd, build_up
 use crate::harnesses::registry::{HarnessRegistry, HarnessSource};
 use crate::harnesses::types::PackageSpec;
 
+fn test_runtimes() -> crate::runtimes::registry::RuntimeRegistry {
+    crate::runtimes::registry::RuntimeRegistry::builtin_only().unwrap()
+}
+
 fn builtin_registry() -> HarnessRegistry {
-    HarnessRegistry::builtin_only().unwrap()
+    HarnessRegistry::builtin_only(&test_runtimes()).unwrap()
 }
 
 fn plugin_registry() -> HarnessRegistry {
-    HarnessRegistry::from_sources(&[HarnessSource::manifest(
-        "install-plugin.toml",
-        r#"
+    HarnessRegistry::from_sources(
+        &[HarnessSource::manifest(
+            "install-plugin.toml",
+            r#"
 schema_version = 1
 id = "install-plugin"
 display_name = "Install Plugin"
@@ -30,7 +35,9 @@ home_subdirs = [".codex"]
 static_envs = { CODEX_HOME = "{home}/.codex" }
 seed_files = []
 "#,
-    )])
+        )],
+        &test_runtimes(),
+    )
     .unwrap()
 }
 

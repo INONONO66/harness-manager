@@ -1,22 +1,21 @@
 use std::fs;
 
 use crate::isolation::{ensure_isolation_tree, seed_files};
-use crate::runtimes::types::{IsolationSpec, SeedFile};
 
-use super::tmp_paths;
+use super::{iso_plan, seed, tmp_paths};
 
 #[test]
 fn ensure_tree_creates_home_subdirs() {
     let p = tmp_paths("ensure-tree");
     let _ = fs::remove_dir_all(&p.base);
-    let spec = IsolationSpec {
-        subdir: "test",
-        spoof_home: true,
-        home_subdirs: &[".codex", ".config/opencode"],
-        static_envs: &[],
-        seed_files: &[],
-        caveat: None,
-    };
+    let spec = iso_plan(
+        "test",
+        true,
+        &[".codex", ".config/opencode"],
+        &[],
+        Vec::new(),
+        None,
+    );
 
     ensure_isolation_tree(&spec, &p).unwrap();
 
@@ -32,19 +31,19 @@ fn seed_files_writes_substituted_content_create_if_missing() {
     let p = tmp_paths("seed-files");
     let _ = fs::remove_dir_all(&p.base);
     fs::create_dir_all(&p.home).unwrap();
-    let spec = IsolationSpec {
-        subdir: "test",
-        spoof_home: true,
-        home_subdirs: &[],
-        static_envs: &[],
-        seed_files: &[SeedFile {
-            path: "{home}/.codex/config.toml",
-            content: "home={home}\nanalytics_enabled = false\n",
-            overwrite: false,
-            mode: None,
-        }],
-        caveat: None,
-    };
+    let spec = iso_plan(
+        "test",
+        true,
+        &[],
+        &[],
+        vec![seed(
+            "{home}/.codex/config.toml",
+            "home={home}\nanalytics_enabled = false\n",
+            false,
+            None,
+        )],
+        None,
+    );
 
     seed_files(&spec, &p).unwrap();
     let path = p.home.join(".codex/config.toml");
@@ -67,19 +66,19 @@ fn seed_files_can_overwrite_and_chmod() {
     let p = tmp_paths("seed-overwrite");
     let _ = fs::remove_dir_all(&p.base);
     fs::create_dir_all(&p.state).unwrap();
-    let spec = IsolationSpec {
-        subdir: "test",
-        spoof_home: true,
-        home_subdirs: &[],
-        static_envs: &[],
-        seed_files: &[SeedFile {
-            path: "{state}/apikey.sh",
-            content: "#!/bin/sh\nexec hm secret get claude-api-key\n",
-            overwrite: true,
-            mode: Some(0o700),
-        }],
-        caveat: None,
-    };
+    let spec = iso_plan(
+        "test",
+        true,
+        &[],
+        &[],
+        vec![seed(
+            "{state}/apikey.sh",
+            "#!/bin/sh\nexec hm secret get claude-api-key\n",
+            true,
+            Some(0o700),
+        )],
+        None,
+    );
     let path = p.state.join("apikey.sh");
     fs::write(&path, "OLD").unwrap();
     #[cfg(unix)]
@@ -111,19 +110,19 @@ fn seed_files_rejects_parent_dir_escape() {
     let p = tmp_paths("seed-escape");
     let _ = fs::remove_dir_all(&p.base);
     fs::create_dir_all(&p.home).unwrap();
-    let spec = IsolationSpec {
-        subdir: "test",
-        spoof_home: true,
-        home_subdirs: &[],
-        static_envs: &[],
-        seed_files: &[SeedFile {
-            path: "{home}/../escaped.toml",
-            content: "escaped = true\n",
-            overwrite: false,
-            mode: None,
-        }],
-        caveat: None,
-    };
+    let spec = iso_plan(
+        "test",
+        true,
+        &[],
+        &[],
+        vec![seed(
+            "{home}/../escaped.toml",
+            "escaped = true\n",
+            false,
+            None,
+        )],
+        None,
+    );
 
     let result = seed_files(&spec, &p);
 
@@ -140,19 +139,19 @@ fn seed_files_rejects_existing_seed_symlink() {
     let outside = p.base.join("outside.toml");
     let target = p.home.join(".codex/config.toml");
     std::os::unix::fs::symlink(&outside, &target).unwrap();
-    let spec = IsolationSpec {
-        subdir: "test",
-        spoof_home: true,
-        home_subdirs: &[],
-        static_envs: &[],
-        seed_files: &[SeedFile {
-            path: "{home}/.codex/config.toml",
-            content: "should-not-write\n",
-            overwrite: true,
-            mode: None,
-        }],
-        caveat: None,
-    };
+    let spec = iso_plan(
+        "test",
+        true,
+        &[],
+        &[],
+        vec![seed(
+            "{home}/.codex/config.toml",
+            "should-not-write\n",
+            true,
+            None,
+        )],
+        None,
+    );
 
     let result = seed_files(&spec, &p);
 
@@ -175,19 +174,14 @@ fn seed_files_rejects_symlinked_target() {
     let outside_target = outside.state.join("real.sh");
     fs::write(&outside_target, "outside").unwrap();
     symlink(&outside_target, p.state.join("apikey.sh")).unwrap();
-    let spec = IsolationSpec {
-        subdir: "test",
-        spoof_home: true,
-        home_subdirs: &[],
-        static_envs: &[],
-        seed_files: &[SeedFile {
-            path: "{state}/apikey.sh",
-            content: "inside\n",
-            overwrite: true,
-            mode: Some(0o700),
-        }],
-        caveat: None,
-    };
+    let spec = iso_plan(
+        "test",
+        true,
+        &[],
+        &[],
+        vec![seed("{state}/apikey.sh", "inside\n", true, Some(0o700))],
+        None,
+    );
 
     let result = seed_files(&spec, &p);
 

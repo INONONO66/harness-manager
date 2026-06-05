@@ -1,0 +1,54 @@
+schema_version = 1
+name = "Codex CLI"
+binary_names = ["codex"]
+version_arg = "--version"
+config_files = ["config.toml"]
+
+[config_locator]
+kind = "env-or-home"
+env = "CODEX_HOME"
+home_relative = ".codex"
+
+[[auth_probes]]
+kind = "json-file"
+relative_path = "auth.json"
+existence_field = "tokens"
+label = "ChatGPT OAuth"
+
+[[auth_probes]]
+kind = "env-keys"
+vars = ["CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY"]
+label = "API key"
+
+[auth_login]
+kind = "exec"
+label = "Codex"
+binary = "codex"
+args = ["auth", "login"]
+
+[injection]
+strategy = "env"
+provider = "openai"
+supported_providers = ["openai"]
+endpoint_env = "OPENAI_BASE_URL"
+api_key_env = "OPENAI_API_KEY"
+strip_envs = ["OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"]
+endpoint_strip_v1 = false
+
+[isolation]
+subdir = "codex"
+spoof_home = true
+home_subdirs = [".codex"]
+
+[isolation.static_envs]
+CODEX_HOME = "{home}/.codex"
+
+[[isolation.seed_files]]
+path = "{home}/.codex/config.toml"
+content = """
+analytics_enabled = false
+check_for_update_on_startup = false
+cli_auth_credentials_store = "file"
+mcp_oauth_credentials_store = "file"
+"""
+overwrite = false

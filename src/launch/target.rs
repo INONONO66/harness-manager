@@ -5,57 +5,51 @@ use anyhow::bail;
 use crate::harnesses::registry::HarnessRegistry;
 use crate::harnesses::types::HarnessSpec;
 use crate::isolation;
-use crate::isolation::spec::IsolationRecipe;
-use crate::runtimes::registry::RUNTIMES;
-use crate::runtimes::types::{IsolationSpec, RuntimeSpec};
+use crate::isolation::spec::{IsolationPlan, IsolationRecipe};
+use crate::runtimes::manifest::RuntimeRecord;
+use crate::runtimes::registry::RuntimeRegistry;
 
 pub(super) enum LaunchTarget<'a> {
-    Runtime(&'static RuntimeSpec),
+    Runtime(&'a RuntimeRecord),
     Harness {
         harness: &'a HarnessSpec,
-        runtime: &'static RuntimeSpec,
+        runtime: &'a RuntimeRecord,
     },
-}
-
-pub(super) fn find_runtime_spec(name: &str) -> Option<&'static RuntimeSpec> {
-    let lower = name.to_lowercase();
-    RUNTIMES
-        .iter()
-        .find(|r| r.name.to_lowercase() == lower || r.binary_names.iter().any(|b| *b == lower))
 }
 
 pub(super) fn resolve_target<'a>(
     name: &str,
-    registry: &'a HarnessRegistry,
+    runtimes: &'a RuntimeRegistry,
+    harnesses: &'a HarnessRegistry,
 ) -> anyhow::Result<LaunchTarget<'a>> {
-    if let Some(h) = registry.find(name) {
-        let rt = find_runtime_spec(&h.target_runtime).ok_or_else(|| {
-            anyhow::anyhow!(
-                "harness '{}' targets runtime '{}', but that runtime is not registered",
-                h.id,
-                h.target_runtime
-            )
-        })?;
-        return Ok(LaunchTarget::Harness {
-            harness: h,
-            runtime: rt,
-        });
+    if let Some(harness) = harnesses.find(name) {
+        let runtime = runtimes
+            .find_by_display_name(&harness.target_runtime)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "harness '{}' targets runtime '{}', but that runtime is not registered",
+                    harness.id,
+                    harness.target_runtime
+                )
+            })?;
+        return Ok(LaunchTarget::Harness { harness, runtime });
     }
-    if let Some(rt) = find_runtime_spec(name) {
-        return Ok(LaunchTarget::Runtime(rt));
+    if let Some(runtime) = runtimes.find(name) {
+        return Ok(LaunchTarget::Runtime(runtime));
     }
     bail!(
         "unknown target: '{}'. Built-in runtimes: {}. Harnesses: {}. Run `hm detect` or `hm harness list` for status.",
         name,
-        runtime_labels(),
-        harness_labels(registry)
+        runtime_labels(runtimes),
+        harness_labels(harnesses)
     )
 }
 
-fn runtime_labels() -> String {
-    RUNTIMES
+fn runtime_labels(runtimes: &RuntimeRegistry) -> String {
+    runtimes
+        .records()
         .iter()
-        .map(|runtime| runtime.binary_names[0])
+        .filter_map(|runtime| runtime.binary_names.first().cloned())
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -79,27 +73,24 @@ fn harness_labels(registry: &HarnessRegistry) -> String {
     }
 }
 
-pub(super) fn runtime_isolation(
-    runtime: &'static RuntimeSpec,
+pub(super) fn runtime_isolation_plan(
+    runtime: &RuntimeRecord,
     allow_keychain: bool,
-) -> anyhow::Result<Option<&'static IsolationSpec>> {
+) -> anyhow::Result<Option<IsolationPlan>> {
     if allow_keychain {
-        return runtime
-            .keychain_isolation
-            .map(|spec| Some(spec as &IsolationSpec))
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "--allow-keychain is not supported for runtime '{}'",
-                    runtime.name
-                )
-            });
+        return runtime.keychain_isolation.clone().map(Some).ok_or_else(|| {
+            anyhow::anyhow!(
+                "--allow-keychain is not supported for runtime '{}'",
+                runtime.name
+            )
+        });
     }
-    Ok(runtime.isolation)
+    Ok(runtime.isolation.clone())
 }
 
 pub(super) fn build_launch_env(
     inherited: &HashMap<String, String>,
-    spec: &RuntimeSpec,
+    runtime: &RuntimeRecord,
     iso_setup: Option<(&dyn IsolationRecipe, &isolation::IsolationPaths)>,
 ) -> HashMap<String, String> {
     let mut env = if let Some((iso, paths)) = iso_setup {
@@ -111,10 +102,18 @@ pub(super) fn build_launch_env(
         }
         env
     };
-    if let Some(injection) = spec.injection {
-        for var in injection.strip_envs {
-            env.remove(*var);
+    if let Some(injection) = runtime.injection.as_ref() {
+        for var in injection_strip_envs(injection) {
+            env.remove(var);
         }
     }
     env
+}
+
+fn injection_strip_envs(injection: &crate::runtimes::manifest::InjectionRecord) -> Vec<&str> {
+    use crate::runtimes::manifest::InjectionRecord;
+    match injection {
+        InjectionRecord::Env(env) => env.strip_envs.iter().map(String::as_str).collect(),
+        InjectionRecord::ProviderConfigSeed(_) => Vec::new(),
+    }
 }

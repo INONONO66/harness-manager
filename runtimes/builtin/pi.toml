@@ -1,0 +1,55 @@
+schema_version = 1
+name = "Pi"
+binary_names = ["pi"]
+version_arg = "--version"
+config_files = ["settings.json"]
+
+[config_locator]
+kind = "env-or-home"
+env = "PI_CODING_AGENT_DIR"
+home_relative = ".pi/agent"
+
+[[auth_probes]]
+kind = "json-file"
+relative_path = "auth.json"
+existence_field = ""
+label = "Auth token"
+
+[auth_login]
+kind = "unsupported"
+
+[injection]
+strategy = "provider-config-seed"
+config_path = "{home}/.pi/agent/models.json"
+root_key = "providers"
+provider_base_url_key = "baseUrl"
+provider_api_key_key = "apiKey"
+provider_headers_key = "headers"
+supported_providers = [
+    "anthropic",
+    "openai",
+    "google",
+    "openrouter",
+    "groq",
+    "xai",
+    "deepseek",
+    "mistral",
+    "azure",
+]
+overwrite = false
+endpoint_strip_v1 = false
+
+[injection.provider_header_overrides.anthropic]
+"x-api-key" = "{bearer}"
+"Authorization" = "Bearer {bearer}"
+
+[isolation]
+subdir = "pi"
+spoof_home = true
+home_subdirs = [".pi/agent"]
+
+[isolation.static_envs]
+PI_CODING_AGENT_DIR = "{home}/.pi/agent"
+PI_OFFLINE = "1"
+PI_SKIP_VERSION_CHECK = "1"
+PI_TELEMETRY = "0"

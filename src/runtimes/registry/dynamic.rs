@@ -5,9 +5,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use colored::Colorize;
 
-use crate::harnesses::builtin::BUILTIN_MANIFESTS;
-use crate::harnesses::manifest::{parse_toml, ManifestHarnessSpec};
-use crate::runtimes::registry::RuntimeRegistry;
+use crate::runtimes::builtin::BUILTIN_RUNTIME_MANIFESTS;
+use crate::runtimes::manifest::{parse_toml, RuntimeRecord};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ManifestOrigin {
@@ -15,27 +14,28 @@ enum ManifestOrigin {
     User,
 }
 
-struct LoadedHarness {
-    spec: ManifestHarnessSpec,
+struct LoadedRuntime {
+    record: RuntimeRecord,
     routes: HashSet<String>,
     origin: ManifestOrigin,
     content: String,
 }
 
 #[derive(Debug, Clone)]
-pub struct HarnessRegistry {
-    specs: Vec<ManifestHarnessSpec>,
+pub struct RuntimeRegistry {
+    records: Vec<RuntimeRecord>,
+    routes: Vec<HashSet<String>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct HarnessDiscoveryEnv {
+pub struct RuntimeDiscoveryEnv {
     pub xdg_config_home: Option<PathBuf>,
     pub xdg_data_home: Option<PathBuf>,
     pub home: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
-pub enum HarnessSource {
+pub enum RuntimeSource {
     Builtins,
     #[cfg(test)]
     Manifest {
@@ -45,7 +45,7 @@ pub enum HarnessSource {
     File(PathBuf),
 }
 
-impl HarnessSource {
+impl RuntimeSource {
     pub fn builtins() -> Self {
         Self::Builtins
     }
@@ -59,101 +59,141 @@ impl HarnessSource {
     }
 }
 
-impl HarnessRegistry {
-    pub fn load(runtimes: &RuntimeRegistry) -> Result<Self> {
-        Self::load_from_env(&HarnessDiscoveryEnv::from_process(), runtimes)
+impl RuntimeRegistry {
+    pub fn load() -> Result<Self> {
+        Self::load_from_env(&RuntimeDiscoveryEnv::from_process())
     }
 
     #[cfg(test)]
-    pub fn builtin_only(runtimes: &RuntimeRegistry) -> Result<Self> {
-        Self::from_sources(&[HarnessSource::builtins()], runtimes)
+    pub fn builtin_only() -> Result<Self> {
+        Self::from_sources(&[RuntimeSource::builtins()])
     }
 
-    pub fn load_from_env(env: &HarnessDiscoveryEnv, runtimes: &RuntimeRegistry) -> Result<Self> {
-        let mut sources = vec![HarnessSource::builtins()];
+    pub fn load_from_env(env: &RuntimeDiscoveryEnv) -> Result<Self> {
+        let mut sources = vec![RuntimeSource::builtins()];
         sources.extend(discover_config_sources(env)?);
         sources.extend(discover_data_sources(env)?);
-        Self::from_sources(&sources, runtimes)
+        Self::from_sources(&sources)
     }
 
-    pub fn from_sources(sources: &[HarnessSource], runtimes: &RuntimeRegistry) -> Result<Self> {
-        let mut loaded: Vec<LoadedHarness> = Vec::new();
+    pub fn from_sources(sources: &[RuntimeSource]) -> Result<Self> {
+        let mut loaded: Vec<LoadedRuntime> = Vec::new();
         for source in sources {
             let origin = source.origin();
             for (label, content) in source.contents()? {
-                let spec = parse_toml(&label, &content, runtimes)?;
-                let routes: HashSet<String> = std::iter::once(spec.id.clone())
-                    .chain(spec.aliases.iter().cloned())
-                    .collect();
+                let record = parse_toml(&label, &content)?;
+                let name_route = normalize_runtime_name(&record.name);
+                if name_route.is_empty() {
+                    anyhow::bail!(
+                        "runtime '{}' normalizes to empty route (must contain ASCII alnum)",
+                        record.name
+                    );
+                }
+                let mut record_routes: HashSet<String> = HashSet::new();
+                record_routes.insert(name_route);
+                for binary in &record.binary_names {
+                    let binary_route = normalize_runtime_name(binary);
+                    if binary_route.is_empty() {
+                        anyhow::bail!(
+                            "runtime '{}' binary '{}' normalizes to empty route",
+                            record.name,
+                            binary
+                        );
+                    }
+                    record_routes.insert(binary_route);
+                }
                 let mut shadowed = Vec::new();
                 for (idx, existing) in loaded.iter().enumerate() {
                     let overlap: Option<&String> =
-                        routes.iter().find(|r| existing.routes.contains(*r));
+                        record_routes.iter().find(|r| existing.routes.contains(*r));
                     if let Some(route) = overlap {
                         match existing.origin {
                             ManifestOrigin::Builtin => shadowed.push(idx),
                             ManifestOrigin::User => {
                                 anyhow::bail!(
-                                    "duplicate harness route '{}' (harness '{}' collides with '{}')",
+                                    "duplicate runtime route '{}' (runtime '{}' collides with '{}')",
                                     route,
-                                    spec.id,
-                                    existing.spec.id
+                                    record.name,
+                                    existing.record.name
                                 );
                             }
                         }
                     }
                 }
                 if shadowed.len() > 1 {
-                    let mut ids: Vec<String> = shadowed
+                    let mut names: Vec<String> = shadowed
                         .iter()
-                        .map(|idx| loaded[*idx].spec.id.clone())
+                        .map(|idx| loaded[*idx].record.name.clone())
                         .collect();
-                    ids.sort();
+                    names.sort();
                     anyhow::bail!(
-                        "user manifest '{}' would shadow multiple built-in harnesses ({}); \
-                         a single user harness can only replace one builtin",
+                        "user manifest '{}' would shadow multiple built-in runtimes ({}); \
+                         a single user runtime can only replace one builtin",
                         label,
-                        ids.join(", ")
+                        names.join(", ")
                     );
                 }
                 for idx in shadowed.into_iter().rev() {
                     let removed = loaded.swap_remove(idx);
+                    record_routes.extend(removed.routes);
                     if removed.content != content {
                         eprintln!(
-                            "{} builtin harness '{}' overridden by user manifest '{}'",
+                            "{} builtin runtime '{}' overridden by user manifest '{}'",
                             "note:".yellow().bold(),
-                            removed.spec.id,
+                            removed.record.name,
                             label
                         );
                     }
                 }
-                loaded.push(LoadedHarness {
-                    spec,
-                    routes,
+                loaded.push(LoadedRuntime {
+                    record,
+                    routes: record_routes,
                     origin,
                     content,
                 });
             }
         }
-        let mut specs: Vec<ManifestHarnessSpec> = loaded.into_iter().map(|l| l.spec).collect();
-        specs.sort_by(|left, right| left.id.cmp(&right.id));
-        Ok(Self { specs })
+        loaded.sort_by(|left, right| left.record.name.cmp(&right.record.name));
+        let (records, routes): (Vec<RuntimeRecord>, Vec<HashSet<String>>) = loaded
+            .into_iter()
+            .map(|entry| (entry.record, entry.routes))
+            .unzip();
+        Ok(Self { records, routes })
     }
 
-    pub fn specs(&self) -> &[ManifestHarnessSpec] {
-        &self.specs
+    pub fn records(&self) -> &[RuntimeRecord] {
+        &self.records
     }
 
-    pub fn find(&self, name: &str) -> Option<&ManifestHarnessSpec> {
-        let lower = name.to_lowercase();
-        self.specs
+    /// Resolve by binary name (exact, case-insensitive) or by normalized display name.
+    /// Uses stored routes so a binary-route override still resolves the OLD display name
+    /// to the replacement record.
+    pub fn find(&self, name: &str) -> Option<&RuntimeRecord> {
+        let normalized = normalize_runtime_name(name);
+        self.routes
             .iter()
-            .find(|spec| spec.id == lower || spec.aliases.iter().any(|alias| alias == &lower))
+            .position(|r| r.contains(&normalized))
+            .map(|idx| &self.records[idx])
+    }
+
+    pub fn find_by_display_name(&self, name: &str) -> Option<&RuntimeRecord> {
+        self.records.iter().find(|record| record.name == name)
+    }
+
+    pub fn id_conflicts_with_runtime(&self, id: &str) -> bool {
+        let normalized = normalize_runtime_name(id);
+        self.routes.iter().any(|r| r.contains(&normalized))
+    }
+
+    pub fn target_runtime_subdir(&self, display_name: &str) -> String {
+        self.find_by_display_name(display_name)
+            .and_then(|record| record.isolation.as_ref().map(|iso| iso.subdir.clone()))
+            .unwrap_or_else(|| normalize_runtime_name(display_name))
     }
 }
 
-impl HarnessDiscoveryEnv {
-    fn from_process() -> Self {
+impl RuntimeDiscoveryEnv {
+    pub fn from_process() -> Self {
         Self {
             xdg_config_home: std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
             xdg_data_home: std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
@@ -162,7 +202,7 @@ impl HarnessDiscoveryEnv {
     }
 }
 
-impl HarnessSource {
+impl RuntimeSource {
     fn origin(&self) -> ManifestOrigin {
         match self {
             Self::Builtins => ManifestOrigin::Builtin,
@@ -174,7 +214,7 @@ impl HarnessSource {
 
     fn contents(&self) -> Result<Vec<(String, String)>> {
         match self {
-            Self::Builtins => Ok(BUILTIN_MANIFESTS
+            Self::Builtins => Ok(BUILTIN_RUNTIME_MANIFESTS
                 .iter()
                 .map(|(label, content)| ((*label).to_string(), (*content).to_string()))
                 .collect()),
@@ -182,7 +222,7 @@ impl HarnessSource {
             Self::Manifest { label, content } => Ok(vec![(label.clone(), content.clone())]),
             Self::File(path) => {
                 let content = fs::read_to_string(path).with_context(|| {
-                    format!("failed to read harness manifest {}", path.display())
+                    format!("failed to read runtime manifest {}", path.display())
                 })?;
                 Ok(vec![(path.display().to_string(), content)])
             }
@@ -190,17 +230,17 @@ impl HarnessSource {
     }
 }
 
-fn discover_config_sources(env: &HarnessDiscoveryEnv) -> Result<Vec<HarnessSource>> {
+fn discover_config_sources(env: &RuntimeDiscoveryEnv) -> Result<Vec<RuntimeSource>> {
     if let Some(root) = &env.xdg_config_home {
-        return discover_harness_dir(&root.join("hm").join("harnesses.d"));
+        return discover_runtime_dir(&root.join("hm").join("runtimes.d"));
     }
     let Some(home) = &env.home else {
         return Ok(Vec::new());
     };
-    discover_harness_dir(&home.join(".config").join("hm").join("harnesses.d"))
+    discover_runtime_dir(&home.join(".config").join("hm").join("runtimes.d"))
 }
 
-fn discover_data_sources(env: &HarnessDiscoveryEnv) -> Result<Vec<HarnessSource>> {
+fn discover_data_sources(env: &RuntimeDiscoveryEnv) -> Result<Vec<RuntimeSource>> {
     let root = env.xdg_data_home.clone().or_else(|| {
         env.home
             .as_ref()
@@ -210,18 +250,18 @@ fn discover_data_sources(env: &HarnessDiscoveryEnv) -> Result<Vec<HarnessSource>
         return Ok(Vec::new());
     };
 
-    let mut sources = discover_harness_dir(&root.join("hm").join("harnesses.d"))?;
+    let mut sources = discover_runtime_dir(&root.join("hm").join("runtimes.d"))?;
     sources.extend(discover_plugin_sources(&root.join("hm").join("plugins"))?);
     Ok(sources)
 }
 
-fn discover_harness_dir(dir: &Path) -> Result<Vec<HarnessSource>> {
+fn discover_runtime_dir(dir: &Path) -> Result<Vec<RuntimeSource>> {
     let mut paths = manifest_files_in_dir(dir)?;
     paths.sort();
-    Ok(paths.into_iter().map(HarnessSource::File).collect())
+    Ok(paths.into_iter().map(RuntimeSource::File).collect())
 }
 
-fn discover_plugin_sources(dir: &Path) -> Result<Vec<HarnessSource>> {
+fn discover_plugin_sources(dir: &Path) -> Result<Vec<RuntimeSource>> {
     if !dir.is_dir() {
         return Ok(Vec::new());
     }
@@ -233,21 +273,21 @@ fn discover_plugin_sources(dir: &Path) -> Result<Vec<HarnessSource>> {
         let entry = entry?;
         if entry.file_type()?.is_symlink() {
             anyhow::bail!(
-                "plugin manifest path must not traverse symlink: {}",
+                "plugin runtime path must not traverse symlink: {}",
                 entry.path().display()
             );
         }
         if !entry.file_type()?.is_dir() {
             continue;
         }
-        let path = entry.path().join("harness.toml");
+        let path = entry.path().join("runtime.toml");
         if path.exists() {
             reject_symlink_escape(&canonical_root, &path)?;
             paths.push(path);
         }
     }
     paths.sort();
-    Ok(paths.into_iter().map(HarnessSource::File).collect())
+    Ok(paths.into_iter().map(RuntimeSource::File).collect())
 }
 
 fn manifest_files_in_dir(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -272,16 +312,24 @@ fn manifest_files_in_dir(dir: &Path) -> Result<Vec<PathBuf>> {
 
 fn reject_symlink_escape(root: &Path, path: &Path) -> Result<()> {
     if fs::symlink_metadata(path)?.file_type().is_symlink() {
-        anyhow::bail!("harness manifest must not be a symlink: {}", path.display());
+        anyhow::bail!("runtime manifest must not be a symlink: {}", path.display());
     }
     let canonical = path
         .canonicalize()
         .with_context(|| format!("failed to canonicalize {}", path.display()))?;
     if !canonical.starts_with(root) {
         anyhow::bail!(
-            "harness manifest path escapes discovery root: {}",
+            "runtime manifest path escapes discovery root: {}",
             path.display()
         );
     }
     Ok(())
+}
+
+fn normalize_runtime_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }

@@ -1,69 +1,73 @@
 use std::collections::HashMap;
 use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
 use std::process::Command;
 
 use anyhow::bail;
 use colored::Colorize;
 
-use crate::config;
+use crate::config::{self, ResolvedProfile};
 use crate::harnesses::registry::HarnessRegistry;
 use crate::isolation;
-use crate::isolation::spec::{IsolationPlan, IsolationRecipe};
-use crate::runtimes::types::RuntimeSpec;
+use crate::isolation::spec::IsolationRecipe;
+use crate::runtimes::manifest::RuntimeRecord;
+use crate::runtimes::registry::RuntimeRegistry;
 
+pub mod injection;
 mod target;
 
-use target::{build_launch_env, resolve_target, runtime_isolation, LaunchTarget};
+use target::{build_launch_env, resolve_target, runtime_isolation_plan, LaunchTarget};
 
-pub fn run_use(
-    registry: &HarnessRegistry,
+pub struct UseEnvAssembly {
+    pub env: HashMap<String, String>,
+    pub binary_names: Vec<String>,
+    pub display_name: String,
+    pub seeded_path: Option<PathBuf>,
+    pub launch_args: Vec<String>,
+    pub profile_applied: bool,
+    pub isolation_present: bool,
+}
+
+pub fn assemble_use_env(
+    runtimes: &RuntimeRegistry,
+    harnesses: &HarnessRegistry,
     target_name: &str,
     profile_name: Option<&str>,
-    print_env: bool,
     allow_keychain: bool,
-    extra_args: &[String],
-) -> anyhow::Result<()> {
-    let target = resolve_target(target_name, registry)?;
+    inherited: HashMap<String, String>,
+) -> anyhow::Result<UseEnvAssembly> {
+    let target = resolve_target(target_name, runtimes, harnesses)?;
 
-    // Destructure into the pieces we need regardless of variant.
-    let (spec, effective_isolation, binary_names, display_name): (
-        &RuntimeSpec,
-        Option<IsolationPlan>,
-        Vec<String>,
-        String,
-    ) = match &target {
+    let (runtime, effective_isolation, binary_names, display_name, launch_args) = match &target {
         LaunchTarget::Runtime(rt) => {
-            let iso = runtime_isolation(rt, allow_keychain)?;
+            let iso = runtime_isolation_plan(rt, allow_keychain)?;
             (
-                rt,
-                iso.map(IsolationPlan::from_runtime),
-                rt.binary_names
-                    .iter()
-                    .map(|name| (*name).to_string())
-                    .collect(),
-                rt.name.to_string(),
+                *rt,
+                iso,
+                rt.binary_names.clone(),
+                rt.name.clone(),
+                Vec::new(),
             )
         }
         LaunchTarget::Harness { harness, runtime } => {
             if allow_keychain {
                 bail!("--allow-keychain is not supported for harness launches");
             }
-            // Harness always has isolation. The launch binary is either the
-            // harness's own wrapper or the underlying runtime's binary.
             let bins = match &harness.launch_binary {
                 Some(bin) => vec![bin.clone()],
-                None => runtime
-                    .binary_names
-                    .iter()
-                    .map(|name| (*name).to_string())
-                    .collect(),
+                None => runtime.binary_names.clone(),
             };
             let name = format!("{} ({})", harness.display_name, runtime.name);
-            (*runtime, Some(harness.isolation.clone()), bins, name)
+            (
+                *runtime,
+                Some(harness.isolation.clone()),
+                bins,
+                name,
+                harness.launch_args.clone(),
+            )
         }
     };
 
-    // --- Isolation setup ---------------------------------------------------
     let iso_setup = if let Some(iso) = effective_isolation {
         let paths = isolation::IsolationPaths::try_from_spec(&iso)?;
         let lock = isolation::IsolationLockGuard::acquire(&paths)?;
@@ -74,116 +78,170 @@ pub fn run_use(
         None
     };
 
-    // --- Env: start from inherited, then strip + inject --------------------
-    let inherited: HashMap<String, String> = std::env::vars().collect();
     let mut env = build_launch_env(
         &inherited,
-        spec,
+        runtime,
         iso_setup
             .as_ref()
             .map(|(iso, paths, _lock)| (iso as &dyn IsolationRecipe, paths)),
     );
 
-    if let Some((iso, _, _lock)) = &iso_setup {
-        if let Some(caveat) = iso.caveat() {
-            eprintln!("{} {}", "⚠".yellow().bold(), caveat);
-        }
-    }
+    let iso_paths = iso_setup.as_ref().map(|(_, paths, _)| paths.clone());
 
-    let iso_setup = iso_setup.map(|(iso, paths, _lock)| (iso, paths));
-
-    // --- Profile injection (endpoint, bearer, proxy) -----------------------
-    let profile_applied = if let Some(profile_arg) = profile_name {
+    let (profile_applied, seeded_path) = if let Some(profile_arg) = profile_name {
         let hm_config = config::load_config()?;
         let resolved = config::resolve_profile(&hm_config, Some(profile_arg))?;
+        let seeded = apply_profile(&resolved, runtime, &mut env, iso_paths.as_ref())?;
+        apply_proxy_env(&resolved, &mut env);
+        (Some(resolved.name.clone()), seeded)
+    } else {
+        (None, None)
+    };
 
-        if !print_env {
+    Ok(UseEnvAssembly {
+        env,
+        binary_names,
+        display_name,
+        seeded_path,
+        launch_args,
+        profile_applied: profile_applied.is_some(),
+        isolation_present: iso_setup.is_some(),
+    })
+}
+
+fn apply_profile(
+    resolved: &ResolvedProfile,
+    runtime: &RuntimeRecord,
+    env: &mut HashMap<String, String>,
+    iso_paths: Option<&isolation::IsolationPaths>,
+) -> anyhow::Result<Option<PathBuf>> {
+    let Some(record_injection) = runtime.injection.as_ref() else {
+        return Ok(None);
+    };
+    let home_dir = iso_paths
+        .map(|paths| paths.home.clone())
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
+    injection::apply_injection(record_injection, resolved, env, &home_dir)
+}
+
+fn apply_proxy_env(resolved: &ResolvedProfile, env: &mut HashMap<String, String>) {
+    if let Some(ref proxy) = resolved.http_proxy {
+        env.insert("HTTP_PROXY".to_string(), proxy.clone());
+        env.insert("http_proxy".to_string(), proxy.clone());
+    }
+    if let Some(ref proxy) = resolved.https_proxy {
+        env.insert("HTTPS_PROXY".to_string(), proxy.clone());
+        env.insert("https_proxy".to_string(), proxy.clone());
+    }
+    if let Some(ref no_proxy) = resolved.no_proxy {
+        env.insert("NO_PROXY".to_string(), no_proxy.clone());
+        env.insert("no_proxy".to_string(), no_proxy.clone());
+    }
+}
+
+pub fn run_use(
+    runtimes: &RuntimeRegistry,
+    harnesses: &HarnessRegistry,
+    target_name: &str,
+    profile_name: Option<&str>,
+    print_env: bool,
+    allow_keychain: bool,
+    extra_args: &[String],
+) -> anyhow::Result<()> {
+    let inherited: HashMap<String, String> = std::env::vars().collect();
+    let assembly = assemble_use_env(
+        runtimes,
+        harnesses,
+        target_name,
+        profile_name,
+        allow_keychain,
+        inherited,
+    )?;
+
+    if !print_env {
+        if assembly.profile_applied {
             eprintln!(
                 "{} {} with profile '{}'",
                 "Launching".green().bold(),
-                display_name.bold(),
-                resolved.name.cyan()
+                assembly.display_name.bold(),
+                profile_name.unwrap_or("").cyan()
+            );
+        } else {
+            let suffix = if assembly.isolation_present {
+                "(isolated, no profile)"
+            } else {
+                "(no profile)"
+            };
+            eprintln!(
+                "{} {} {}",
+                "Launching".green().bold(),
+                assembly.display_name.bold(),
+                suffix
             );
         }
+        if let Some(ref seeded) = assembly.seeded_path {
+            eprintln!(
+                "{} seeded {}",
+                "✓".green().bold(),
+                seeded.display().to_string().cyan()
+            );
+        }
+        emit_caveats(runtimes, harnesses, target_name, allow_keychain);
+    }
 
-        if let Some(injection) = spec.injection {
-            if let Some(ref endpoint) = resolved.endpoint {
-                let effective_endpoint = if injection.endpoint_strip_v1 {
-                    endpoint
-                        .trim_end_matches('/')
-                        .trim_end_matches("/v1")
-                        .to_string()
-                } else {
-                    endpoint.clone()
-                };
-                env.insert(injection.endpoint_env.to_string(), effective_endpoint);
-            }
-            if let Some(ref bearer) = resolved.bearer {
-                env.insert(injection.api_key_env.to_string(), bearer.clone());
-            }
-        }
-
-        if let Some(ref proxy) = resolved.http_proxy {
-            env.insert("HTTP_PROXY".to_string(), proxy.clone());
-            env.insert("http_proxy".to_string(), proxy.clone());
-        }
-        if let Some(ref proxy) = resolved.https_proxy {
-            env.insert("HTTPS_PROXY".to_string(), proxy.clone());
-            env.insert("https_proxy".to_string(), proxy.clone());
-        }
-        if let Some(ref no_proxy) = resolved.no_proxy {
-            env.insert("NO_PROXY".to_string(), no_proxy.clone());
-            env.insert("no_proxy".to_string(), no_proxy.clone());
-        }
-        true
-    } else {
-        false
-    };
-
-    // --- print-env exit path -----------------------------------------------
     if print_env {
-        let mut keys: Vec<&String> = env.keys().collect();
+        let mut keys: Vec<&String> = assembly.env.keys().collect();
         keys.sort();
         for k in keys {
-            println!("{}={}", k, env[k]);
+            println!("{}={}", k, assembly.env[k]);
+        }
+        if let Some(ref seeded) = assembly.seeded_path {
+            eprintln!("{}", seeded.display());
         }
         return Ok(());
     }
 
-    // --- Resolve binary and exec -------------------------------------------
-    let binary_name_refs: Vec<&str> = binary_names.iter().map(String::as_str).collect();
+    let binary_name_refs: Vec<&str> = assembly.binary_names.iter().map(String::as_str).collect();
     let binary = crate::runtimes::find_binary(&binary_name_refs).ok_or_else(|| {
         anyhow::anyhow!(
             "{} is not installed (binary not found in PATH)",
-            display_name
+            assembly.display_name
         )
     })?;
 
-    if !profile_applied {
-        let suffix = if iso_setup.is_some() {
-            "(isolated, no profile)"
-        } else {
-            "(no profile)"
-        };
-        eprintln!(
-            "{} {} {}",
-            "Launching".green().bold(),
-            display_name.bold(),
-            suffix
-        );
-    }
-
     let mut cmd = Command::new(&binary);
-    if let LaunchTarget::Harness { harness, .. } = &target {
-        cmd.args(&harness.launch_args);
-    }
+    cmd.args(&assembly.launch_args);
     cmd.args(extra_args);
     cmd.env_clear();
-    for (k, v) in &env {
+    for (k, v) in &assembly.env {
         cmd.env(k, v);
     }
     let err = cmd.exec();
     bail!("failed to exec {}: {}", binary.display(), err);
+}
+
+fn emit_caveats(
+    runtimes: &RuntimeRegistry,
+    harnesses: &HarnessRegistry,
+    target_name: &str,
+    allow_keychain: bool,
+) {
+    let caveat = match resolve_target(target_name, runtimes, harnesses) {
+        Ok(LaunchTarget::Runtime(rt)) => {
+            if allow_keychain {
+                rt.keychain_isolation
+                    .as_ref()
+                    .and_then(|i| i.caveat.clone())
+            } else {
+                rt.isolation.as_ref().and_then(|i| i.caveat.clone())
+            }
+        }
+        Ok(LaunchTarget::Harness { harness, .. }) => harness.isolation.caveat.clone(),
+        Err(_) => None,
+    };
+    if let Some(c) = caveat {
+        eprintln!("{} {}", "⚠".yellow().bold(), c);
+    }
 }
 
 #[cfg(test)]

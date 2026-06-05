@@ -1,0 +1,79 @@
+schema_version = 1
+name = "OpenCode"
+binary_names = ["opencode"]
+version_arg = "--version"
+config_files = ["opencode.jsonc", "opencode.json"]
+
+[config_locator]
+kind = "xdg-config"
+subdir = "opencode"
+env_override = "OPENCODE_CONFIG_DIR"
+
+[[auth_probes]]
+kind = "data-dir-json-file"
+data_subdir = "opencode"
+file_name = "auth.json"
+label = "Provider auth"
+
+[[auth_probes]]
+kind = "env-keys"
+vars = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY"]
+label = "API key"
+
+[auth_login]
+kind = "message"
+lines = [
+    "OpenCode uses provider-specific authentication.",
+    "Set API keys via environment variables:",
+    "  export ANTHROPIC_API_KEY=sk-...",
+    "  export OPENAI_API_KEY=sk-...",
+    "Or run `opencode` to authenticate interactively.",
+]
+
+[injection]
+strategy = "provider-config-seed"
+config_path = "{home}/.config/opencode/opencode.json"
+root_key = "provider"
+provider_base_url_key = "options.baseURL"
+provider_api_key_key = "options.apiKey"
+provider_headers_key = "options.headers"
+supported_providers = [
+    "anthropic",
+    "openai",
+    "google",
+    "openrouter",
+    "groq",
+    "xai",
+    "deepseek",
+    "mistral",
+    "azure",
+    "togetherai",
+    "fireworks-ai",
+    "zai",
+    "zhipuai",
+]
+overwrite = false
+endpoint_strip_v1 = false
+legacy_provider = "openai"
+
+[injection.provider_header_overrides.anthropic]
+"x-api-key" = "{bearer}"
+"Authorization" = "Bearer {bearer}"
+
+[isolation]
+subdir = "opencode"
+spoof_home = true
+home_subdirs = [
+    ".config/opencode",
+    ".local/share/opencode",
+    ".cache/opencode",
+    ".local/state/opencode",
+]
+
+[isolation.static_envs]
+XDG_CONFIG_HOME = "{home}/.config"
+XDG_DATA_HOME = "{home}/.local/share"
+XDG_CACHE_HOME = "{home}/.cache"
+XDG_STATE_HOME = "{home}/.local/state"
+OPENCODE_DISABLE_AUTOUPDATE = "1"
+OPENCODE_DISABLE_PROJECT_CONFIG = "1"

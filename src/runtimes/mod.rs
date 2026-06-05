@@ -1,4 +1,6 @@
 pub mod auth;
+pub mod builtin;
+pub mod manifest;
 pub mod registry;
 pub mod types;
 
@@ -7,17 +9,17 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use types::*;
+use std::collections::BTreeSet;
 
-/// Resolve a config directory from a ConfigLocator spec.
-fn resolve_config_dir(locator: &ConfigLocator) -> Option<PathBuf> {
+use manifest::{ConfigLocatorRecord, RuntimeRecord};
+use registry::RuntimeRegistry;
+use types::DetectedRuntime;
+
+fn resolve_config_dir(locator: &ConfigLocatorRecord) -> Option<PathBuf> {
     match locator {
-        ConfigLocator::EnvOrHome {
-            env_var,
-            home_relative,
-        } => {
-            if !env_var.is_empty() {
-                if let Ok(dir) = std::env::var(env_var) {
+        ConfigLocatorRecord::EnvOrHome { env, home_relative } => {
+            if !env.is_empty() {
+                if let Ok(dir) = std::env::var(env) {
                     let p = PathBuf::from(&dir);
                     if p.is_dir() {
                         return Some(p);
@@ -28,7 +30,7 @@ fn resolve_config_dir(locator: &ConfigLocator) -> Option<PathBuf> {
                 .map(|h| h.join(home_relative))
                 .filter(|p| p.is_dir())
         }
-        ConfigLocator::XdgConfig {
+        ConfigLocatorRecord::XdgConfig {
             subdir,
             env_override,
         } => {
@@ -40,9 +42,6 @@ fn resolve_config_dir(locator: &ConfigLocator) -> Option<PathBuf> {
                     }
                 }
             }
-            // Try XDG_CONFIG_HOME first, then platform default, then ~/.config fallback.
-            // Many CLI tools use ~/.config/ even on macOS where dirs::config_dir()
-            // returns ~/Library/Application Support/.
             if let Some(p) = dirs::config_dir()
                 .map(|c| c.join(subdir))
                 .filter(|p| p.is_dir())
@@ -56,8 +55,7 @@ fn resolve_config_dir(locator: &ConfigLocator) -> Option<PathBuf> {
     }
 }
 
-/// Find the first matching config file inside the config dir.
-fn find_config_file(config_dir: &Option<PathBuf>, candidates: &[&str]) -> Option<PathBuf> {
+fn find_config_file(config_dir: &Option<PathBuf>, candidates: &[String]) -> Option<PathBuf> {
     let dir = config_dir.as_ref()?;
     for name in candidates {
         let p = dir.join(name);
@@ -77,7 +75,11 @@ pub fn find_binary(names: &[&str]) -> Option<PathBuf> {
     None
 }
 
-fn get_version(binary: &PathBuf, version_arg: &str) -> Option<String> {
+fn get_version(
+    binary: &PathBuf,
+    version_arg: &str,
+    env_overrides: &BTreeSet<String>,
+) -> Option<String> {
     let sandbox = version_probe_sandbox();
     fs::create_dir_all(&sandbox).ok()?;
     let home = sandbox.join("home");
@@ -89,19 +91,18 @@ fn get_version(binary: &PathBuf, version_arg: &str) -> Option<String> {
         fs::create_dir_all(dir).ok()?;
     }
 
-    let output = match Command::new(binary)
-        .arg(version_arg)
+    let mut cmd = Command::new(binary);
+    cmd.arg(version_arg)
         .env("HOME", &home)
         .env("XDG_CONFIG_HOME", &config)
         .env("XDG_DATA_HOME", &data)
         .env("XDG_CACHE_HOME", &cache)
-        .env("XDG_STATE_HOME", &state)
-        .env_remove("CLAUDE_CONFIG_DIR")
-        .env_remove("CODEX_HOME")
-        .env_remove("OPENCODE_CONFIG_DIR")
-        .env_remove("PI_CODING_AGENT_DIR")
-        .output()
-    {
+        .env("XDG_STATE_HOME", &state);
+    for key in env_overrides {
+        cmd.env_remove(key);
+    }
+
+    let output = match cmd.output() {
         Ok(output) => output,
         Err(_) => {
             let _ = fs::remove_dir_all(&sandbox);
@@ -120,6 +121,32 @@ fn get_version(binary: &PathBuf, version_arg: &str) -> Option<String> {
         .map(|l| l.trim().to_string())
 }
 
+fn collect_runtime_env_overrides(registry: &RuntimeRegistry) -> BTreeSet<String> {
+    let mut keys = BTreeSet::new();
+    for record in registry.records() {
+        match &record.config_locator {
+            ConfigLocatorRecord::EnvOrHome { env, .. } if !env.is_empty() => {
+                keys.insert(env.clone());
+            }
+            ConfigLocatorRecord::XdgConfig { env_override, .. } if !env_override.is_empty() => {
+                keys.insert(env_override.clone());
+            }
+            _ => {}
+        }
+        if let Some(isolation) = record.isolation.as_ref() {
+            for (k, _) in &isolation.static_envs {
+                keys.insert(k.clone());
+            }
+        }
+        if let Some(isolation) = record.keychain_isolation.as_ref() {
+            for (k, _) in &isolation.static_envs {
+                keys.insert(k.clone());
+            }
+        }
+    }
+    keys
+}
+
 fn version_probe_sandbox() -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -128,23 +155,23 @@ fn version_probe_sandbox() -> PathBuf {
     std::env::temp_dir().join(format!("hm-version-{}-{nanos}", std::process::id()))
 }
 
-/// Detect a single runtime from its spec.
-fn detect_one(spec: &RuntimeSpec) -> DetectedRuntime {
-    let binary = find_binary(spec.binary_names);
+fn detect_one(record: &RuntimeRecord, env_overrides: &BTreeSet<String>) -> DetectedRuntime {
+    let names: Vec<&str> = record.binary_names.iter().map(String::as_str).collect();
+    let binary = find_binary(&names);
     let installed = binary.is_some();
-    let config_dir = resolve_config_dir(&spec.config_locator);
+    let config_dir = resolve_config_dir(&record.config_locator);
     let version = binary
         .as_ref()
-        .and_then(|b| get_version(b, spec.version_arg));
-    let config_path = find_config_file(&config_dir, spec.config_files).or(config_dir.clone());
+        .and_then(|b| get_version(b, &record.version_arg, env_overrides));
+    let config_path = find_config_file(&config_dir, &record.config_files).or(config_dir.clone());
     let auth_sources = if installed {
-        auth::probe_auth_all(spec.auth_probes, config_dir.as_deref())
+        auth::probe_auth_all(&record.auth_probes, config_dir.as_deref())
     } else {
         Vec::new()
     };
 
     DetectedRuntime {
-        name: spec.name.to_string(),
+        name: record.name.clone(),
         installed,
         version,
         binary_path: binary,
@@ -153,9 +180,13 @@ fn detect_one(spec: &RuntimeSpec) -> DetectedRuntime {
     }
 }
 
-/// Run detection for all registered runtimes.
-pub fn detect_all() -> Vec<DetectedRuntime> {
-    registry::RUNTIMES.iter().map(detect_one).collect()
+pub fn detect_all(registry: &RuntimeRegistry) -> Vec<DetectedRuntime> {
+    let env_overrides = collect_runtime_env_overrides(registry);
+    registry
+        .records()
+        .iter()
+        .map(|record| detect_one(record, &env_overrides))
+        .collect()
 }
 
 #[cfg(test)]
@@ -184,7 +215,7 @@ mod tests {
         .unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
 
-        let version = get_version(&script, "--version");
+        let version = get_version(&script, "--version", &BTreeSet::new());
 
         let sandbox_home = version.expect("script prints sandbox HOME");
         assert!(sandbox_home.contains("hm-version-"));

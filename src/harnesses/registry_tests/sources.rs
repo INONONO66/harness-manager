@@ -42,11 +42,15 @@ fn registry_loads_user_manifest_from_xdg_config_home() {
     fs::create_dir_all(&harness_dir).unwrap();
     fs::write(harness_dir.join("demo.toml"), demo_manifest("demo")).unwrap();
 
-    let registry = HarnessRegistry::load_from_env(&HarnessDiscoveryEnv {
-        xdg_config_home: Some(temp.path().join("config")),
-        xdg_data_home: Some(temp.path().join("data")),
-        home: Some(temp.path().join("home")),
-    })
+    let runtimes = super::test_runtimes();
+    let registry = HarnessRegistry::load_from_env(
+        &HarnessDiscoveryEnv {
+            xdg_config_home: Some(temp.path().join("config")),
+            xdg_data_home: Some(temp.path().join("data")),
+            home: Some(temp.path().join("home")),
+        },
+        &runtimes,
+    )
     .unwrap();
 
     assert!(registry.find("demo").is_some());
@@ -55,12 +59,12 @@ fn registry_loads_user_manifest_from_xdg_config_home() {
 
 #[test]
 fn registry_from_sources_does_not_read_process_env() {
-    let first = HarnessRegistry::from_sources(&[HarnessSource::manifest(
+    let first = super::registry_from_sources(&[HarnessSource::manifest(
         "first.toml",
         demo_manifest("first"),
     )])
     .unwrap();
-    let second = HarnessRegistry::from_sources(&[HarnessSource::manifest(
+    let second = super::registry_from_sources(&[HarnessSource::manifest(
         "second.toml",
         demo_manifest("second"),
     )])
@@ -89,11 +93,15 @@ fn registry_load_from_env_does_not_fallback_to_process_xdg() {
     let _restore = EnvRestore::capture();
     std::env::set_var("HOME", &process_home);
     std::env::remove_var("XDG_CONFIG_HOME");
-    let registry = HarnessRegistry::load_from_env(&HarnessDiscoveryEnv {
-        xdg_config_home: None,
-        xdg_data_home: None,
-        home: Some(temp.path().join("provided-home")),
-    })
+    let runtimes = super::test_runtimes();
+    let registry = HarnessRegistry::load_from_env(
+        &HarnessDiscoveryEnv {
+            xdg_config_home: None,
+            xdg_data_home: None,
+            home: Some(temp.path().join("provided-home")),
+        },
+        &runtimes,
+    )
     .unwrap();
 
     assert!(
@@ -104,7 +112,7 @@ fn registry_load_from_env_does_not_fallback_to_process_xdg() {
 
 #[test]
 fn registry_source_order_is_deterministic() {
-    let registry = HarnessRegistry::from_sources(&[
+    let registry = super::registry_from_sources(&[
         HarnessSource::manifest("z.toml", demo_manifest("zeta")),
         HarnessSource::manifest("a.toml", demo_manifest("alpha")),
     ])
@@ -132,11 +140,15 @@ fn registry_rejects_symlink_manifest_escape() {
     fs::write(&outside, demo_manifest("escape")).unwrap();
     symlink(&outside, harness_dir.join("escape.toml")).unwrap();
 
-    let err = HarnessRegistry::load_from_env(&HarnessDiscoveryEnv {
-        xdg_config_home: Some(config_root),
-        xdg_data_home: Some(temp.path().join("data")),
-        home: Some(temp.path().join("home")),
-    })
+    let runtimes = super::test_runtimes();
+    let err = HarnessRegistry::load_from_env(
+        &HarnessDiscoveryEnv {
+            xdg_config_home: Some(config_root),
+            xdg_data_home: Some(temp.path().join("data")),
+            home: Some(temp.path().join("home")),
+        },
+        &runtimes,
+    )
     .unwrap_err();
 
     assert!(

@@ -1,9 +1,20 @@
-use super::*;
+use super::target::{build_launch_env, resolve_target, runtime_isolation_plan, LaunchTarget};
+use crate::harnesses::registry::HarnessRegistry;
+use crate::isolation;
+use crate::runtimes::registry::RuntimeRegistry;
 use std::collections::HashMap;
 
-fn plugin_registry() -> crate::harnesses::registry::HarnessRegistry {
-    crate::harnesses::registry::HarnessRegistry::from_sources(&[
-        crate::harnesses::registry::HarnessSource::manifest(
+fn test_runtimes() -> RuntimeRegistry {
+    RuntimeRegistry::builtin_only().unwrap()
+}
+
+fn builtin_harnesses() -> HarnessRegistry {
+    HarnessRegistry::builtin_only(&test_runtimes()).unwrap()
+}
+
+fn plugin_registry() -> HarnessRegistry {
+    HarnessRegistry::from_sources(
+        &[crate::harnesses::registry::HarnessSource::manifest(
             "launch-plugin.toml",
             r#"
 schema_version = 1
@@ -24,15 +35,17 @@ home_subdirs = [".codex"]
 static_envs = { CODEX_HOME = "{home}/.codex" }
 seed_files = []
 "#,
-        ),
-    ])
+        )],
+        &test_runtimes(),
+    )
     .unwrap()
 }
 
 #[test]
 fn resolve_target_runtime() {
-    let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
-    match resolve_target("codex", &registry).unwrap() {
+    let runtimes = test_runtimes();
+    let harnesses = builtin_harnesses();
+    match resolve_target("codex", &runtimes, &harnesses).unwrap() {
         LaunchTarget::Runtime(rt) => assert_eq!(rt.name, "Codex CLI"),
         _ => panic!("expected Runtime"),
     }
@@ -40,8 +53,9 @@ fn resolve_target_runtime() {
 
 #[test]
 fn resolve_target_runtime_by_name() {
-    let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
-    match resolve_target("Codex CLI", &registry).unwrap() {
+    let runtimes = test_runtimes();
+    let harnesses = builtin_harnesses();
+    match resolve_target("Codex CLI", &runtimes, &harnesses).unwrap() {
         LaunchTarget::Runtime(rt) => assert_eq!(rt.name, "Codex CLI"),
         _ => panic!("expected Runtime"),
     }
@@ -49,8 +63,9 @@ fn resolve_target_runtime_by_name() {
 
 #[test]
 fn resolve_target_harness() {
-    let registry = plugin_registry();
-    match resolve_target("launch-plugin", &registry).unwrap() {
+    let runtimes = test_runtimes();
+    let harnesses = plugin_registry();
+    match resolve_target("launch-plugin", &runtimes, &harnesses).unwrap() {
         LaunchTarget::Harness { harness, runtime } => {
             assert_eq!(harness.id, "launch-plugin");
             assert_eq!(runtime.name, "Codex CLI");
@@ -61,8 +76,9 @@ fn resolve_target_harness() {
 
 #[test]
 fn resolve_target_harness_case_insensitive() {
-    let registry = plugin_registry();
-    match resolve_target("LAUNCH-PLUGIN", &registry).unwrap() {
+    let runtimes = test_runtimes();
+    let harnesses = plugin_registry();
+    match resolve_target("LAUNCH-PLUGIN", &runtimes, &harnesses).unwrap() {
         LaunchTarget::Harness { harness, .. } => assert_eq!(harness.id, "launch-plugin"),
         _ => panic!("expected Harness"),
     }
@@ -70,14 +86,16 @@ fn resolve_target_harness_case_insensitive() {
 
 #[test]
 fn resolve_target_unknown() {
-    let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
-    assert!(resolve_target("nonexistent-xyz", &registry).is_err());
+    let runtimes = test_runtimes();
+    let harnesses = builtin_harnesses();
+    assert!(resolve_target("nonexistent-xyz", &runtimes, &harnesses).is_err());
 }
 
 #[test]
 fn resolve_target_plugin_harness_has_wrapper() {
-    let registry = plugin_registry();
-    match resolve_target("launch-plugin", &registry).unwrap() {
+    let runtimes = test_runtimes();
+    let harnesses = plugin_registry();
+    match resolve_target("launch-plugin", &runtimes, &harnesses).unwrap() {
         LaunchTarget::Harness { harness, .. } => {
             assert_eq!(harness.launch_binary.as_deref(), Some("plugin-wrapper"));
         }
@@ -87,13 +105,14 @@ fn resolve_target_plugin_harness_has_wrapper() {
 
 #[test]
 fn runtime_isolation_rejects_allow_keychain_for_non_claude() {
-    let registry = crate::harnesses::registry::HarnessRegistry::builtin_only().unwrap();
-    let target = match resolve_target("codex", &registry).unwrap() {
+    let runtimes = test_runtimes();
+    let harnesses = builtin_harnesses();
+    let target = match resolve_target("codex", &runtimes, &harnesses).unwrap() {
         LaunchTarget::Runtime(runtime) => runtime,
         _ => panic!("expected Runtime"),
     };
 
-    let result = runtime_isolation(target, true);
+    let result = runtime_isolation_plan(target, true);
 
     assert!(result.is_err());
     assert!(result
@@ -104,8 +123,9 @@ fn runtime_isolation_rejects_allow_keychain_for_non_claude() {
 
 #[test]
 fn isolated_launch_env_uses_allowlist_and_strips_arbitrary_host_secrets() {
-    let registry = plugin_registry();
-    let target = match resolve_target("launch-plugin", &registry).unwrap() {
+    let runtimes = test_runtimes();
+    let harnesses = plugin_registry();
+    let (harness, runtime) = match resolve_target("launch-plugin", &runtimes, &harnesses).unwrap() {
         LaunchTarget::Harness { harness, runtime } => (harness, runtime),
         _ => panic!("expected Harness"),
     };
@@ -132,7 +152,7 @@ fn isolated_launch_env_uses_allowlist_and_strips_arbitrary_host_secrets() {
         ("OPENROUTER_API_KEY".to_string(), "openrouter".to_string()),
     ]);
 
-    let env = build_launch_env(&inherited, target.1, Some((&target.0.isolation, &paths)));
+    let env = build_launch_env(&inherited, runtime, Some((&harness.isolation, &paths)));
 
     assert_eq!(env.get("PATH"), Some(&"/bin".to_string()));
     assert!(env.contains_key("HOME"));
@@ -147,9 +167,10 @@ fn isolated_launch_env_uses_allowlist_and_strips_arbitrary_host_secrets() {
 
 #[test]
 fn resolve_target_accepts_plugin_registry_entries() {
-    let registry = plugin_registry();
+    let runtimes = test_runtimes();
+    let harnesses = plugin_registry();
 
-    match resolve_target("launch-plugin", &registry).unwrap() {
+    match resolve_target("launch-plugin", &runtimes, &harnesses).unwrap() {
         LaunchTarget::Harness { harness, runtime } => {
             assert_eq!(harness.display_name, "Launch Plugin");
             assert_eq!(harness.launch_binary.as_deref(), Some("plugin-wrapper"));

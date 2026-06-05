@@ -1,4 +1,7 @@
-pub(super) use super::parse_toml;
+use anyhow::Result;
+
+use super::{parse_toml as parse_toml_inner, ManifestHarnessSpec};
+use crate::runtimes::registry::RuntimeRegistry;
 
 #[path = "manifest_tests/docs_and_fixtures.rs"]
 mod docs_and_fixtures;
@@ -8,6 +11,11 @@ mod parsing;
 mod runtime_tokens;
 #[path = "manifest_tests/validation_cases.rs"]
 mod validation_cases;
+
+pub(super) fn parse_toml(path_label: &str, input: &str) -> Result<ManifestHarnessSpec> {
+    let runtimes = RuntimeRegistry::builtin_only()?;
+    parse_toml_inner(path_label, input, &runtimes)
+}
 
 pub(super) fn minimal_manifest(extra: &str) -> String {
     format!(

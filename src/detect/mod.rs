@@ -2,7 +2,7 @@ use colored::Colorize;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, Color, Table};
 
 use crate::runtimes;
-use crate::runtimes::registry::RUNTIMES;
+use crate::runtimes::registry::RuntimeRegistry;
 use crate::runtimes::types::AuthStatus;
 
 fn auth_summary(sources: &[AuthStatus]) -> (String, Color) {
@@ -45,12 +45,11 @@ fn auth_detail_lines(sources: &[AuthStatus]) -> Vec<String> {
         .collect()
 }
 
-fn runtime_command(name: &str) -> &str {
-    RUNTIMES
-        .iter()
-        .find(|runtime| runtime.name == name)
-        .and_then(|runtime| runtime.binary_names.first().copied())
-        .unwrap_or("-")
+fn runtime_command(registry: &RuntimeRegistry, name: &str) -> String {
+    registry
+        .find_by_display_name(name)
+        .and_then(|record| record.binary_names.first().cloned())
+        .unwrap_or_else(|| "-".to_string())
 }
 
 fn has_configured_auth(sources: &[AuthStatus]) -> bool {
@@ -62,8 +61,13 @@ fn has_configured_auth(sources: &[AuthStatus]) -> bool {
     })
 }
 
-fn next_step(name: &str, installed: bool, auth_sources: &[AuthStatus]) -> String {
-    let command = runtime_command(name);
+fn next_step(
+    registry: &RuntimeRegistry,
+    name: &str,
+    installed: bool,
+    auth_sources: &[AuthStatus],
+) -> String {
+    let command = runtime_command(registry, name);
     if !installed {
         return format!("Install {}", name);
     }
@@ -74,8 +78,8 @@ fn next_step(name: &str, installed: bool, auth_sources: &[AuthStatus]) -> String
     }
 }
 
-pub fn run_detect() -> anyhow::Result<()> {
-    let results = runtimes::detect_all();
+pub fn run_detect(registry: &RuntimeRegistry) -> anyhow::Result<()> {
+    let results = runtimes::detect_all(registry);
 
     let mut table = Table::new();
     table
@@ -104,11 +108,16 @@ pub fn run_detect() -> anyhow::Result<()> {
 
         table.add_row(vec![
             Cell::new(&rt.name),
-            Cell::new(runtime_command(&rt.name)),
+            Cell::new(runtime_command(registry, &rt.name)),
             status,
             version,
             auth,
-            Cell::new(next_step(&rt.name, rt.installed, &rt.auth_sources)),
+            Cell::new(next_step(
+                registry,
+                &rt.name,
+                rt.installed,
+                &rt.auth_sources,
+            )),
         ]);
     }
 
@@ -129,7 +138,7 @@ pub fn run_detect() -> anyhow::Result<()> {
             if let Some(ref cfg) = rt.config_path {
                 println!("  Config:  {}", cfg.display());
             }
-            println!("  Command: hm use {}", runtime_command(&rt.name));
+            println!("  Command: hm use {}", runtime_command(registry, &rt.name));
 
             let lines = auth_detail_lines(&rt.auth_sources);
             for (i, line) in lines.iter().enumerate() {

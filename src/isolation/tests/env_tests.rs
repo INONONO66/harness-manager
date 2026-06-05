@@ -1,25 +1,24 @@
 use std::collections::HashMap;
 
 use crate::isolation::{build_isolation_env, build_sanitized_isolation_env};
-use crate::runtimes::types::IsolationSpec;
 
-use super::tmp_paths;
+use super::{iso_plan, tmp_paths};
 
 #[test]
 fn build_env_inserts_home_and_static_envs() {
     let p = tmp_paths("build-env");
-    let spec = IsolationSpec {
-        subdir: "test",
-        spoof_home: true,
-        home_subdirs: &[],
-        static_envs: &[
+    let spec = iso_plan(
+        "test",
+        true,
+        &[],
+        &[
             ("CODEX_HOME", "{home}/.codex"),
             ("SESSION_LOG_DIR", "{runtime_logs}"),
             ("PI_OFFLINE", "1"),
         ],
-        seed_files: &[],
-        caveat: None,
-    };
+        Vec::new(),
+        None,
+    );
 
     let env = build_isolation_env(&spec, &p);
 
@@ -35,14 +34,7 @@ fn build_env_inserts_home_and_static_envs() {
 #[test]
 fn build_env_skips_home_when_spoof_disabled() {
     let p = tmp_paths("build-env-no-spoof");
-    let spec = IsolationSpec {
-        subdir: "test",
-        spoof_home: false,
-        home_subdirs: &[],
-        static_envs: &[("FOO", "bar")],
-        seed_files: &[],
-        caveat: None,
-    };
+    let spec = iso_plan("test", false, &[], &[("FOO", "bar")], Vec::new(), None);
 
     let env = build_isolation_env(&spec, &p);
 
@@ -53,14 +45,14 @@ fn build_env_skips_home_when_spoof_disabled() {
 #[test]
 fn build_sanitized_env_strips_hostile_vars_and_uses_isolated_home() {
     let p = tmp_paths("sanitized-env");
-    let spec = IsolationSpec {
-        subdir: "test",
-        spoof_home: true,
-        home_subdirs: &[],
-        static_envs: &[("CODEX_HOME", "{home}/.codex")],
-        seed_files: &[],
-        caveat: None,
-    };
+    let spec = iso_plan(
+        "test",
+        true,
+        &[],
+        &[("CODEX_HOME", "{home}/.codex")],
+        Vec::new(),
+        None,
+    );
     let inherited = HashMap::from([
         ("PATH".to_string(), "/bin".to_string()),
         ("OPENAI_API_KEY".to_string(), "leak".to_string()),

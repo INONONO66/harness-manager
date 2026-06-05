@@ -33,7 +33,7 @@ pub enum Commands {
         action: AuthAction,
     },
 
-    /// Manage injection profiles and apply/reset persistent injections
+    /// Preview injection profile effects
     #[command(alias = "profile")]
     Inject {
         #[command(subcommand)]
@@ -103,26 +103,6 @@ pub enum InjectAction {
         /// Profile to inject
         #[arg(short, long)]
         profile: String,
-    },
-
-    /// Apply persistent injection to config files
-    Apply {
-        /// Runtime to inject
-        target: String,
-
-        /// Profile to inject
-        #[arg(short, long)]
-        profile: String,
-
-        /// Write to native config files
-        #[arg(long)]
-        persist: bool,
-    },
-
-    /// Reset persistent injections
-    Reset {
-        /// Runtime or "all"
-        target: String,
     },
 }
 

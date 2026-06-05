@@ -1,9 +1,10 @@
 use std::path::Path;
 
-use super::types::{AuthProbe, AuthStatus};
+use super::manifest::AuthProbeRecord;
+use super::types::AuthStatus;
 
 /// Run all auth probes and collect every match (not first-match-wins).
-pub fn probe_auth_all(probes: &[AuthProbe], config_dir: Option<&Path>) -> Vec<AuthStatus> {
+pub fn probe_auth_all(probes: &[AuthProbeRecord], config_dir: Option<&Path>) -> Vec<AuthStatus> {
     let mut results = Vec::new();
     for probe in probes {
         let result = run_probe(probe, config_dir);
@@ -14,41 +15,41 @@ pub fn probe_auth_all(probes: &[AuthProbe], config_dir: Option<&Path>) -> Vec<Au
     results
 }
 
-fn run_probe(probe: &AuthProbe, config_dir: Option<&Path>) -> AuthStatus {
+fn run_probe(probe: &AuthProbeRecord, config_dir: Option<&Path>) -> AuthStatus {
     match probe {
-        AuthProbe::EnvKeys { vars, label } => probe_env_keys(vars, label),
-        AuthProbe::JsonFile {
+        AuthProbeRecord::EnvKeys { vars, label } => probe_env_keys(vars, label),
+        AuthProbeRecord::JsonFile {
             relative_path,
             existence_field,
             label,
         } => probe_json_file(config_dir, relative_path, existence_field, label)
             .unwrap_or(AuthStatus::NotConfigured),
-        AuthProbe::OAuthFile {
+        AuthProbeRecord::OAuthFile {
             relative_path,
             token_field,
             label,
         } => probe_oauth_file(config_dir, relative_path, token_field, label)
             .unwrap_or(AuthStatus::NotConfigured),
-        AuthProbe::NestedOAuthFile {
+        AuthProbeRecord::NestedOAuthFile {
             relative_path,
             path,
             label,
         } => probe_nested_oauth(config_dir, relative_path, path, label)
             .unwrap_or(AuthStatus::NotConfigured),
-        AuthProbe::DataDirJsonFile {
+        AuthProbeRecord::DataDirJsonFile {
             data_subdir,
             file_name,
             label,
         } => {
             probe_data_dir_json(data_subdir, file_name, label).unwrap_or(AuthStatus::NotConfigured)
         }
-        AuthProbe::KeychainHeuristic { marker_file, label } => {
+        AuthProbeRecord::KeychainHeuristic { marker_file, label } => {
             probe_keychain(config_dir, marker_file, label)
         }
     }
 }
 
-fn probe_env_keys(vars: &[&str], label: &str) -> AuthStatus {
+fn probe_env_keys(vars: &[String], label: &str) -> AuthStatus {
     for var in vars {
         if std::env::var(var).is_ok() {
             return AuthStatus::Valid {
@@ -118,7 +119,7 @@ fn probe_oauth_file(
 fn probe_nested_oauth(
     config_dir: Option<&Path>,
     relative_path: &str,
-    path: &[&str],
+    path: &[String],
     label: &str,
 ) -> Option<AuthStatus> {
     let dir = config_dir?;
@@ -133,7 +134,7 @@ fn probe_nested_oauth(
     let mut current = &json;
     for segment in path {
         current = current
-            .get(segment)
+            .get(segment.as_str())
             .or_else(|| current.get(to_camel(segment)))?;
     }
 
