@@ -55,6 +55,21 @@ cargo build --release
 cp target/release/hm ~/.local/bin/
 ```
 
+## First-Time Bootstrap (`hm init`)
+
+`hm init` copies every built-in runtime and harness manifest into `~/.config/hm/` so you can edit them. The embedded copies in the binary stay as defaults; your edits take precedence.
+
+```bash
+hm init                # write 4 runtimes + 5 harnesses to ~/.config/hm/{runtimes,harnesses}.d/ (skip existing)
+hm init --force        # overwrite existing user manifests with the embedded defaults
+hm init --install      # also install every non-manual harness package
+hm init --force --install   # clean reset: refresh manifests AND reinstall harnesses
+```
+
+**Override rule.** User runtime manifests override bundled runtimes by normalized display name OR binary name; user harness manifests override by id OR alias. Byte-identical `hm init` copies are silent; any divergence emits a `note:` on stderr. Shadowed builtin routes are preserved as lookup aliases on the replacement, so harnesses referencing the old display name still resolve. A single user manifest shadowing MULTIPLE builtins fails closed, and two user manifests sharing a route fail closed.
+
+**What you can edit.** Anything in the manifest schema — change `supported_providers`, add `provider_header_overrides`, retarget `config_path`, swap the package install strategy, add new `auth_probes`, etc. Run `hm use <runtime>` and your changes drive the next launch.
+
 ## Daily Commands
 
 ```bash

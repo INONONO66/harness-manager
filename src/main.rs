@@ -3,6 +3,7 @@ mod cli;
 mod config;
 mod detect;
 mod harnesses;
+mod init;
 mod inject;
 mod isolation;
 mod launch;
@@ -30,9 +31,15 @@ fn harness_labels(registry: &harnesses::registry::HarnessRegistry) -> String {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    if let Commands::Init { force, install } = cli.command {
+        return init::run_init(force, install);
+    }
+
     let runtimes = runtimes::registry::RuntimeRegistry::load()?;
 
     match cli.command {
+        Commands::Init { .. } => unreachable!("handled above before registry load"),
+
         Commands::Detect => {
             detect::run_detect(&runtimes)?;
         }

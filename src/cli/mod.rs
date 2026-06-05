@@ -15,6 +15,17 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Copy built-in runtime and harness manifests to ~/.config/hm/ so you can edit them
+    Init {
+        /// Overwrite existing manifests in ~/.config/hm/{runtimes,harnesses}.d/
+        #[arg(long)]
+        force: bool,
+
+        /// Also install every harness whose `package.kind` is not `manual`
+        #[arg(long)]
+        install: bool,
+    },
+
     /// Detect installed agent runtimes
     #[command(alias = "ls")]
     Detect,
