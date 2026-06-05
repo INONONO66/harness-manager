@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use fs2::FileExt;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -62,6 +63,48 @@ impl IsolationPaths {
             tmp: base.join("tmp"),
             base,
         })
+    }
+
+    pub fn lock_file(&self) -> Result<PathBuf> {
+        let runtime_root = self
+            .base
+            .parent()
+            .with_context(|| format!("isolation base has no parent: {}", self.base.display()))?;
+        let subdir = self
+            .base
+            .file_name()
+            .with_context(|| format!("isolation base has no leaf: {}", self.base.display()))?;
+        Ok(runtime_root
+            .join(".locks")
+            .join(format!("{}.lock", subdir.to_string_lossy())))
+    }
+}
+
+pub struct IsolationLockGuard {
+    _file: fs::File,
+}
+
+impl IsolationLockGuard {
+    pub fn acquire(paths: &IsolationPaths) -> Result<Self> {
+        let root = isolation_root(paths)?;
+        let lock_file = paths.lock_file()?;
+        let lock_dir = lock_file
+            .parent()
+            .with_context(|| format!("lock file has no parent: {}", lock_file.display()))?;
+        ensure_under_base(lock_dir, &root, "isolation lock dir")?;
+        create_private_dir_all(lock_dir, &root, "isolation lock dir")?;
+        ensure_under_base(&lock_file, &root, "isolation lock")?;
+        reject_existing_symlink_chain(&lock_file, &root, "isolation lock")?;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_file)
+            .with_context(|| format!("open isolation lock {}", lock_file.display()))?;
+        file.lock_exclusive()
+            .with_context(|| format!("lock isolation {}", lock_file.display()))?;
+        Ok(Self { _file: file })
     }
 }
 

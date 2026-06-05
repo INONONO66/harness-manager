@@ -1,0 +1,17 @@
+schema_version = 1
+id = "unknown-field"
+display_name = "Unknown Field"
+target_runtime = "Codex CLI"
+detect_binaries = ["unknown-field"]
+launch_bianry = "typo"
+launch_args = []
+
+[package]
+kind = "manual"
+instructions = "manual"
+
+[isolation]
+spoof_home = true
+home_subdirs = [".codex"]
+static_envs = { CODEX_HOME = "{home}/.codex" }
+seed_files = []

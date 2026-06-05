@@ -1,0 +1,16 @@
+schema_version = 1
+id = "bad-env"
+display_name = "Bad Env"
+target_runtime = "Codex CLI"
+detect_binaries = ["bad-env"]
+launch_args = []
+
+[package]
+kind = "manual"
+instructions = "manual"
+
+[isolation]
+spoof_home = true
+home_subdirs = [".codex"]
+static_envs = { OPENAI_API_KEY = "x" }
+seed_files = []

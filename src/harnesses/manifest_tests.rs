@@ -1,4 +1,5 @@
 use super::{parse_toml, ManifestPackageSpec};
+use std::path::Path;
 
 fn minimal_manifest(extra: &str) -> String {
     format!(
@@ -175,5 +176,87 @@ fn manifest_rejects_bad_static_env_value() {
     assert!(
         err.to_string().contains("static_envs"),
         "error should mention static_envs, got: {err:#}"
+    );
+}
+
+fn fixture(name: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("harnesses")
+        .join(name);
+    std::fs::read_to_string(path).expect("fixture exists")
+}
+
+#[test]
+fn manifest_rejects_path_launch_binary() {
+    let err = parse_toml(
+        "tests/fixtures/harnesses/bad-launch.toml",
+        &fixture("bad-launch.toml"),
+    )
+    .expect_err("path launch binary must fail");
+
+    assert!(
+        err.to_string().contains("launch_binary"),
+        "error should mention launch_binary, got: {err:#}"
+    );
+}
+
+#[test]
+fn manifest_rejects_secret_static_env() {
+    let err = parse_toml(
+        "tests/fixtures/harnesses/bad-env.toml",
+        &fixture("bad-env.toml"),
+    )
+    .expect_err("secret static env must fail");
+
+    assert!(
+        err.to_string().contains("OPENAI_API_KEY"),
+        "error should mention the rejected env field, got: {err:#}"
+    );
+}
+
+#[test]
+fn manifest_error_names_source_path() {
+    let err = parse_toml(
+        "tests/fixtures/harnesses/bad-env.toml",
+        &fixture("bad-env.toml"),
+    )
+    .expect_err("bad fixture must fail");
+
+    assert!(
+        err.to_string()
+            .contains("tests/fixtures/harnesses/bad-env.toml"),
+        "error should include source path, got: {err:#}"
+    );
+}
+
+#[test]
+fn manifest_rejects_unknown_field() {
+    let err = parse_toml(
+        "tests/fixtures/harnesses/unknown-field.toml",
+        &fixture("unknown-field.toml"),
+    )
+    .expect_err("unknown field must fail");
+
+    assert!(
+        err.to_string().contains("unknown field"),
+        "error should mention unknown field, got: {err:#}"
+    );
+}
+
+#[test]
+fn manifest_rejects_nul_in_args() {
+    let input = minimal_manifest("").replace(
+        r#"package = "demo-package""#,
+        "package = \"demo-package\"\nargs = [\"run\\u0000now\"]",
+    );
+    let input = input.replace(r#"kind = "npm-global""#, r#"kind = "npx-installer""#);
+
+    let err = parse_toml("nul-args.toml", &input).expect_err("NUL arg must fail");
+
+    assert!(
+        err.to_string().contains("package.args"),
+        "error should mention package.args, got: {err:#}"
     );
 }

@@ -1,0 +1,16 @@
+schema_version = 1
+id = "bad-package"
+display_name = "Bad Package"
+target_runtime = "Codex CLI"
+detect_binaries = ["bad-package"]
+launch_args = []
+
+[package]
+kind = "npm-global"
+package = "--prefix=/tmp/x"
+
+[isolation]
+spoof_home = true
+home_subdirs = [".codex"]
+static_envs = { CODEX_HOME = "{home}/.codex" }
+seed_files = []

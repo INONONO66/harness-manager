@@ -1,0 +1,20 @@
+schema_version = 1
+id = "bad-seed"
+display_name = "Bad Seed"
+target_runtime = "Codex CLI"
+detect_binaries = ["bad-seed"]
+launch_args = []
+
+[package]
+kind = "manual"
+instructions = "manual"
+
+[isolation]
+spoof_home = true
+home_subdirs = [".codex"]
+static_envs = { CODEX_HOME = "{home}/.codex" }
+
+[[isolation.seed_files]]
+path = "../host.toml"
+content = "bad"
+overwrite = true

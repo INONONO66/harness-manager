@@ -66,9 +66,10 @@ pub fn run_use(
     // --- Isolation setup ---------------------------------------------------
     let iso_setup = if let Some(iso) = effective_isolation {
         let paths = isolation::IsolationPaths::try_from_spec(&iso)?;
+        let lock = isolation::IsolationLockGuard::acquire(&paths)?;
         isolation::ensure_isolation_tree(&iso, &paths)?;
         isolation::seed_files(&iso, &paths)?;
-        Some((iso, paths))
+        Some((iso, paths, lock))
     } else {
         None
     };
@@ -80,14 +81,16 @@ pub fn run_use(
         spec,
         iso_setup
             .as_ref()
-            .map(|(iso, paths)| (iso as &dyn IsolationRecipe, paths)),
+            .map(|(iso, paths, _lock)| (iso as &dyn IsolationRecipe, paths)),
     );
 
-    if let Some((iso, _)) = &iso_setup {
+    if let Some((iso, _, _lock)) = &iso_setup {
         if let Some(caveat) = iso.caveat() {
             eprintln!("{} {}", "⚠".yellow().bold(), caveat);
         }
     }
+
+    let iso_setup = iso_setup.map(|(iso, paths, _lock)| (iso, paths));
 
     // --- Profile injection (endpoint, bearer, proxy) -----------------------
     let profile_applied = if let Some(profile_arg) = profile_name {

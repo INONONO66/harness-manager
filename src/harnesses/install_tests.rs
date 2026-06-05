@@ -130,8 +130,9 @@ fn apply_isolation_env_strips_hostile_vars() {
     let mut cmd = Command::new("dummy");
     let registry = plugin_registry();
     let spec = registry.find("install-plugin").unwrap();
+    let paths = crate::isolation::IsolationPaths::try_from_spec(&spec.isolation).unwrap();
 
-    apply_isolation_env(&mut cmd, &spec.isolation).unwrap();
+    apply_isolation_env(&mut cmd, &spec.isolation, &paths).unwrap();
 
     let envs: Vec<(String, Option<String>)> = cmd
         .get_envs()

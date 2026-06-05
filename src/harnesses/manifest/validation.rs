@@ -80,7 +80,10 @@ pub(super) fn validate_env_key(path_label: &str, key: &str) -> Result<()> {
         || key.ends_with("_TOKEN")
         || key.ends_with("_SECRET")
         || key.ends_with("_API_KEY");
-    ensure(shape_ok && !denied, path_label, "isolation.static_envs")
+    if shape_ok && !denied {
+        return Ok(());
+    }
+    bail!("{path_label}: invalid isolation.static_envs.{key}")
 }
 
 pub(super) fn validate_template_value(path_label: &str, field: &str, value: &str) -> Result<()> {

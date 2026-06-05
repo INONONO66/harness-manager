@@ -7,17 +7,17 @@ use super::package::{build_install_cmd, build_uninstall_cmd, build_update_cmd};
 use super::registry::HarnessRegistry;
 use super::types::{HarnessSpec, PackageSpec};
 use crate::isolation::spec::IsolationRecipe;
-use crate::isolation::{self, IsolationPaths};
+use crate::isolation::{self, IsolationLockGuard, IsolationPaths};
 
 fn apply_isolation_env(
     cmd: &mut Command,
     iso: &(impl IsolationRecipe + ?Sized),
+    paths: &IsolationPaths,
 ) -> anyhow::Result<()> {
-    let paths = IsolationPaths::try_from_spec(iso)?;
-    isolation::ensure_isolation_tree(iso, &paths)?;
-    isolation::seed_files(iso, &paths)?;
+    isolation::ensure_isolation_tree(iso, paths)?;
+    isolation::seed_files(iso, paths)?;
     let inherited: std::collections::HashMap<String, String> = std::env::vars().collect();
-    let env = isolation::build_sanitized_isolation_env(&inherited, iso, &paths);
+    let env = isolation::build_sanitized_isolation_env(&inherited, iso, paths);
     cmd.env_clear();
     for (k, v) in env {
         cmd.env(k, v);
@@ -69,7 +69,9 @@ pub fn install(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
     let mut cmd = build_install_cmd(&spec.package)
         .ok_or_else(|| anyhow::anyhow!("no suitable package manager found for harness '{}'", id))?;
 
-    apply_isolation_env(&mut cmd, &spec.isolation)?;
+    let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
+    let _lock = IsolationLockGuard::acquire(&paths)?;
+    apply_isolation_env(&mut cmd, &spec.isolation, &paths)?;
     run_cmd(cmd, "install", id)?;
 
     eprintln!(
@@ -95,7 +97,9 @@ pub fn update(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
     let mut cmd = build_update_cmd(&spec.package)
         .ok_or_else(|| anyhow::anyhow!("no suitable package manager found for harness '{}'", id))?;
 
-    apply_isolation_env(&mut cmd, &spec.isolation)?;
+    let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
+    let _lock = IsolationLockGuard::acquire(&paths)?;
+    apply_isolation_env(&mut cmd, &spec.isolation, &paths)?;
     run_cmd(cmd, "update", id)?;
 
     eprintln!(
@@ -115,15 +119,17 @@ pub fn remove(registry: &HarnessRegistry, id: &str, purge: bool) -> anyhow::Resu
         spec.display_name
     );
 
+    let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
+    let _lock = IsolationLockGuard::acquire(&paths)?;
+
     if let Some(cmd) = build_uninstall_cmd(&spec.package) {
         // Best-effort uninstall — don't fail if the package wasn't installed
         let mut cmd = cmd;
-        apply_isolation_env(&mut cmd, &spec.isolation)?;
+        apply_isolation_env(&mut cmd, &spec.isolation, &paths)?;
         let _ = run_cmd(cmd, "uninstall", id);
     }
 
     if purge {
-        let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
         if paths.base.exists() {
             eprintln!("Purging isolation directory: {}", paths.base.display());
         }
