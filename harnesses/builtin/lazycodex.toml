@@ -2,8 +2,8 @@ schema_version = 1
 id = "lazycodex"
 display_name = "lazycodex"
 target_runtime = "Codex CLI"
-detect_binaries = ["lazycodex-ai"]
-launch_binary = "lazycodex-ai"
+detect_binaries = ["codex"]
+launch_binary = "codex"
 
 [package]
 kind = "npx-installer"
@@ -13,13 +13,13 @@ args = ["install"]
 [isolation]
 subdir = "lazycodex"
 spoof_home = true
-home_subdirs = [".codex"]
+home_subdirs = []
 
 [isolation.static_envs]
-CODEX_HOME = "{home}/.codex"
+CODEX_HOME = "{runtime_home}/.codex"
 
 [[isolation.seed_files]]
-path = "{home}/.codex/config.toml"
+path = "{runtime_home}/.codex/config.toml"
 content = '''
 analytics_enabled = false
 check_for_update_on_startup = false

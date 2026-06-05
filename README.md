@@ -120,8 +120,8 @@ package = "my-harness-package"
 
 [isolation]
 spoof_home = true
-home_subdirs = [".codex"]
-static_envs = { CODEX_HOME = "{home}/.codex" }
+home_subdirs = []
+static_envs = { CODEX_HOME = "{runtime_home}/.codex" }
 ```
 
 Then run:
@@ -143,8 +143,8 @@ Full schema and plugin packaging guidance: [docs/harness-manifest.md](docs/harne
 - Launch binaries must be executable names, not paths or shell snippets.
 - Package install strategies are structured: `npm-global`, `npx-installer`, `bunx-installer`, `python-tool`, or `manual`.
 - Static env keys cannot be host secrets such as `*_TOKEN`, `*_SECRET`, or `*_API_KEY`.
-- Seed files must live under `{home}/`, `{state}/`, or `{tmp}/`.
-- Side-effecting operations take a per-harness lock under `$XDG_DATA_HOME/hm/runtimes/.locks`.
+- Seed files must live under `{home}/`, `{runtime_home}/`, `{state}/`, or `{tmp}/`; static envs may also use `{runtime_home}`, `{runtime_state}`, and `{runtime_logs}` for target-runtime shared state/log paths. Harness-specific plugin state belongs under `{home}` or `{state}`; runtime session DBs, auth, MCP config, and runtime plugins should point at `{runtime_home}`.
+- Side-effecting operations take a per-target-runtime lock under `$XDG_DATA_HOME/hm/runtimes/.locks`.
 
 ## Configuration
 

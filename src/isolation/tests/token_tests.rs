@@ -24,6 +24,15 @@ fn subst_tokens_replaces_state_and_tmp() {
 }
 
 #[test]
+fn subst_tokens_replaces_runtime_state_and_logs() {
+    let p = tmp_paths("subst-runtime-logs");
+
+    assert!(subst_tokens("{runtime_home}/.codex", &p).ends_with("/home/.codex"));
+    assert!(subst_tokens("{runtime_state}/sessions", &p).ends_with("/state/sessions"));
+    assert!(subst_tokens("{runtime_logs}", &p).ends_with("/state/logs"));
+}
+
+#[test]
 fn subst_tokens_passes_through_unknown_and_plain() {
     let p = tmp_paths("subst-unknown");
 

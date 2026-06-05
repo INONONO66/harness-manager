@@ -12,7 +12,11 @@ fn build_env_inserts_home_and_static_envs() {
         subdir: "test",
         spoof_home: true,
         home_subdirs: &[],
-        static_envs: &[("CODEX_HOME", "{home}/.codex"), ("PI_OFFLINE", "1")],
+        static_envs: &[
+            ("CODEX_HOME", "{home}/.codex"),
+            ("SESSION_LOG_DIR", "{runtime_logs}"),
+            ("PI_OFFLINE", "1"),
+        ],
         seed_files: &[],
         caveat: None,
     };
@@ -24,6 +28,7 @@ fn build_env_inserts_home_and_static_envs() {
         &p.home.to_string_lossy().to_string()
     );
     assert!(env.get("CODEX_HOME").unwrap().ends_with("/.codex"));
+    assert!(env.get("SESSION_LOG_DIR").unwrap().ends_with("/state/logs"));
     assert_eq!(env.get("PI_OFFLINE").unwrap(), "1");
 }
 

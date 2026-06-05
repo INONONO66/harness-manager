@@ -51,12 +51,12 @@ instructions = "Install demo-agent from your plugin distribution."
 [isolation]
 subdir = "demo"
 spoof_home = true
-home_subdirs = [".codex"]
-static_envs = { CODEX_HOME = "{home}/.codex", DEMO_STATE = "{state}/demo" }
+home_subdirs = []
+static_envs = { CODEX_HOME = "{runtime_home}/.codex", DEMO_STATE = "{state}/demo" }
 caveat = "Demo harness runs with an isolated HOME."
 
 [[isolation.seed_files]]
-path = "{home}/.codex/config.toml"
+path = "{runtime_home}/.codex/config.toml"
 content = "analytics_enabled = false\n"
 overwrite = false
 ```
@@ -128,7 +128,7 @@ instructions = "Install the binary with your plugin manager."
 
 `isolation.home_subdirs`: directories created under the isolated home.
 
-`isolation.static_envs`: static env values with `{home}`, `{state}`, and `{tmp}` substitution.
+`isolation.static_envs`: static env values with `{home}`, `{state}`, `{tmp}`, `{runtime_home}`, `{runtime_state}`, and `{runtime_logs}` substitution. Use `{runtime_home}` for the target runtime's real session/config home when wrappers should share DBs, auth, MCP config, or runtime-installed plugins.
 
 `isolation.seed_files`: files created inside the isolation tree before launch or package-manager work.
 
@@ -140,9 +140,12 @@ Use these tokens instead of absolute host paths:
 {home}   isolated home directory
 {state}  per-harness state directory
 {tmp}    per-harness temp directory
+{runtime_home}   target runtime home directory
+{runtime_state}  target runtime state directory
+{runtime_logs}   target runtime shared log directory
 ```
 
-Seed file paths must start with `{home}/`, `{state}/`, or `{tmp}/`.
+Seed file paths must start with `{home}/`, `{runtime_home}/`, `{state}/`, or `{tmp}/`.
 
 ## Security Rules
 
@@ -155,9 +158,9 @@ Manifests are data, not code.
 - No static env override for `HOME`, `PATH`, `SHELL`, `PWD`, `_`, or `SSH_AUTH_SOCK`.
 - No `LD_` or `DYLD_` static env keys.
 - No package URLs, git specs, path package names, or option-looking package names.
-- No seed files outside `{home}`, `{state}`, or `{tmp}`.
+- No seed files outside `{home}`, `{runtime_home}`, `{state}`, or `{tmp}`.
 
-Each side-effecting command takes a per-harness lock under `$XDG_DATA_HOME/hm/runtimes/.locks/`, so install/update/remove and launch setup do not interleave for the same harness.
+Each side-effecting command takes a per-target-runtime lock under `$XDG_DATA_HOME/hm/runtimes/.locks/`, so harnesses that share the same target runtime do not interleave launch/install/update/remove setup.
 
 ## Bundled Harnesses
 

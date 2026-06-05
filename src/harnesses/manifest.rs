@@ -142,7 +142,12 @@ fn convert_manifest(path_label: &str, manifest: HarnessManifest) -> Result<Manif
     validate_args(path_label, "launch_args", &manifest.launch_args)?;
 
     let package = convert_package(path_label, manifest.package)?;
-    let isolation = convert_isolation(path_label, &manifest.id, manifest.isolation)?;
+    let isolation = convert_isolation(
+        path_label,
+        &manifest.id,
+        &manifest.target_runtime,
+        manifest.isolation,
+    )?;
 
     Ok(ManifestHarnessSpec {
         id: manifest.id,
@@ -208,9 +213,11 @@ fn normalize_runtime_name(name: &str) -> String {
 fn convert_isolation(
     path_label: &str,
     id: &str,
+    target_runtime: &str,
     isolation: IsolationManifest,
 ) -> Result<IsolationPlan> {
     let subdir = isolation.subdir.unwrap_or_else(|| id.to_string());
+    let runtime_subdir = target_runtime_subdir(target_runtime);
     validate_relative_path(path_label, "isolation.subdir", &subdir)?;
     for subdir in &isolation.home_subdirs {
         validate_relative_path(path_label, "isolation.home_subdirs", subdir)?;
@@ -237,12 +244,22 @@ fn convert_isolation(
 
     Ok(IsolationPlan {
         subdir,
+        runtime_subdir,
         spoof_home: isolation.spoof_home,
         home_subdirs: isolation.home_subdirs,
         static_envs,
         seed_files,
         caveat: isolation.caveat,
     })
+}
+
+fn target_runtime_subdir(target_runtime: &str) -> String {
+    RUNTIMES
+        .iter()
+        .find(|runtime| runtime.name == target_runtime)
+        .and_then(|runtime| runtime.isolation.map(|isolation| isolation.subdir))
+        .map(str::to_string)
+        .unwrap_or_else(|| normalize_runtime_name(target_runtime))
 }
 
 #[cfg(test)]

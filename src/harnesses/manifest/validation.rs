@@ -59,6 +59,7 @@ pub(super) fn validate_relative_path(path_label: &str, field: &str, value: &str)
 pub(super) fn validate_seed_path(path_label: &str, value: &str) -> Result<()> {
     ensure(
         value.starts_with("{home}/")
+            || value.starts_with("{runtime_home}/")
             || value.starts_with("{state}/")
             || value.starts_with("{tmp}/"),
         path_label,
@@ -106,7 +107,14 @@ pub(super) fn validate_template_value(path_label: &str, field: &str, value: &str
         field,
     )?;
     for token in tokens(value) {
-        ensure(matches!(token, "home" | "state" | "tmp"), path_label, field)?;
+        ensure(
+            matches!(
+                token,
+                "home" | "state" | "tmp" | "runtime_home" | "runtime_state" | "runtime_logs"
+            ),
+            path_label,
+            field,
+        )?;
     }
     Ok(())
 }

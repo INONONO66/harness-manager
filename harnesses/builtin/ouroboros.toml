@@ -3,6 +3,7 @@ id = "ouroboros"
 display_name = "ouroboros"
 target_runtime = "Codex CLI"
 detect_binaries = ["ouroboros"]
+launch_binary = "ouroboros"
 
 [package]
 kind = "python-tool"
@@ -11,14 +12,14 @@ package = "ouroboros-ai"
 [isolation]
 subdir = "ouroboros"
 spoof_home = true
-home_subdirs = [".codex", ".ouroboros"]
+home_subdirs = [".ouroboros"]
 caveat = "ouroboros harness: Codex CLI with ouroboros workflow engine. Run `ouroboros setup --runtime codex` after install."
 
 [isolation.static_envs]
-CODEX_HOME = "{home}/.codex"
+CODEX_HOME = "{runtime_home}/.codex"
 
 [[isolation.seed_files]]
-path = "{home}/.codex/config.toml"
+path = "{runtime_home}/.codex/config.toml"
 content = '''
 analytics_enabled = false
 check_for_update_on_startup = false

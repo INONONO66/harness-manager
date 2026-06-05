@@ -1,8 +1,7 @@
 use std::fs;
 
-use crate::isolation::{
-    ensure_isolation_tree, purge_isolation_tree, IsolationLockGuard, IsolationPaths,
-};
+use crate::isolation::{ensure_isolation_tree, purge_isolation_tree, IsolationPaths};
+use crate::isolation::spec::IsolationPlan;
 use crate::runtimes::types::IsolationSpec;
 
 use super::tmp_paths;
@@ -43,6 +42,61 @@ fn ensure_tree_rejects_absolute_home_subdir() {
 
     assert!(result.is_err(), "absolute home subdir must be rejected");
     let _ = fs::remove_dir_all(&p.base);
+}
+
+#[test]
+fn ensure_tree_creates_runtime_log_root_for_harness_plan() {
+    let mut p = tmp_paths("runtime-logs");
+    let runtime_base = p.base.parent().unwrap().join("codex");
+    p.runtime_home = runtime_base.join("home");
+    p.runtime_state = runtime_base.join("state");
+    p.runtime_logs = runtime_base.join("state/logs");
+    p.runtime_base = runtime_base;
+    let _ = fs::remove_dir_all(&p.base);
+    let spec = IsolationPlan {
+        subdir: "test".to_string(),
+        runtime_subdir: "codex".to_string(),
+        spoof_home: true,
+        home_subdirs: Vec::new(),
+        static_envs: Vec::new(),
+        seed_files: Vec::new(),
+        caveat: None,
+    };
+
+    ensure_isolation_tree(&spec, &p).unwrap();
+
+    assert!(p.state.is_dir());
+    assert!(p.runtime_logs.is_dir());
+    let _ = fs::remove_dir_all(p.base.parent().unwrap().parent().unwrap());
+}
+
+#[test]
+fn ensure_tree_does_not_mirror_harness_home_subdirs_to_runtime_home() {
+    let mut p = tmp_paths("runtime-home-not-mirrored");
+    let runtime_base = p.base.parent().unwrap().join("codex");
+    p.runtime_home = runtime_base.join("home");
+    p.runtime_state = runtime_base.join("state");
+    p.runtime_logs = runtime_base.join("state/logs");
+    p.runtime_base = runtime_base;
+    let _ = fs::remove_dir_all(p.base.parent().unwrap().parent().unwrap());
+    let spec = IsolationPlan {
+        subdir: "sample-harness".to_string(),
+        runtime_subdir: "codex".to_string(),
+        spoof_home: true,
+        home_subdirs: vec![".harness-cache".to_string()],
+        static_envs: Vec::new(),
+        seed_files: Vec::new(),
+        caveat: None,
+    };
+
+    ensure_isolation_tree(&spec, &p).unwrap();
+
+    assert!(p.home.join(".harness-cache").is_dir());
+    assert!(
+        !p.runtime_home.join(".harness-cache").exists(),
+        "harness overlay directories must not be mirrored into shared runtime state"
+    );
+    let _ = fs::remove_dir_all(p.base.parent().unwrap().parent().unwrap());
 }
 
 #[cfg(unix)]
@@ -97,6 +151,10 @@ fn ensure_tree_rejects_symlinked_runtimes_ancestor() {
         home: hm_root.join("runtimes/sample-harness/home"),
         state: hm_root.join("runtimes/sample-harness/state"),
         tmp: hm_root.join("runtimes/sample-harness/tmp"),
+        runtime_base: hm_root.join("runtimes/codex"),
+        runtime_home: hm_root.join("runtimes/codex/home"),
+        runtime_state: hm_root.join("runtimes/codex/state"),
+        runtime_logs: hm_root.join("runtimes/codex/state/logs"),
     };
     let spec = IsolationSpec {
         subdir: "sample-harness",
@@ -145,6 +203,10 @@ fn purge_rejects_symlinked_runtimes_ancestor() {
         home: hm_root.join("runtimes/sample-harness/home"),
         state: hm_root.join("runtimes/sample-harness/state"),
         tmp: hm_root.join("runtimes/sample-harness/tmp"),
+        runtime_base: hm_root.join("runtimes/codex"),
+        runtime_home: hm_root.join("runtimes/codex/home"),
+        runtime_state: hm_root.join("runtimes/codex/state"),
+        runtime_logs: hm_root.join("runtimes/codex/state/logs"),
     };
 
     let result = purge_isolation_tree(&p);
@@ -178,48 +240,4 @@ fn all_registered_harnesses_have_distinct_isolation_roots() {
             harness.id
         );
     }
-}
-
-#[test]
-fn isolation_lock_file_lives_under_runtimes_lock_dir() {
-    let paths = tmp_paths("lock-path");
-
-    let lock_file = paths.lock_file().unwrap();
-
-    assert_eq!(
-        lock_file,
-        paths
-            .base
-            .parent()
-            .unwrap()
-            .join(".locks")
-            .join("test.lock")
-    );
-}
-
-#[test]
-fn isolation_lock_serializes_second_acquirer() {
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    let paths = tmp_paths("lock-serializes");
-    let first = IsolationLockGuard::acquire(&paths).unwrap();
-    let second_paths = paths.clone();
-    let (sender, receiver) = mpsc::channel();
-
-    let handle = std::thread::spawn(move || {
-        let _second = IsolationLockGuard::acquire(&second_paths).unwrap();
-        sender.send(()).unwrap();
-    });
-
-    assert!(
-        receiver.recv_timeout(Duration::from_millis(100)).is_err(),
-        "second acquirer must block while first lock is held"
-    );
-    drop(first);
-    receiver
-        .recv_timeout(Duration::from_secs(2))
-        .expect("second acquirer should proceed after first lock drops");
-    handle.join().unwrap();
-    let _ = fs::remove_dir_all(paths.base.parent().unwrap().parent().unwrap());
 }

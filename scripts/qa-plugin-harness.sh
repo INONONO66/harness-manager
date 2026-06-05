@@ -72,11 +72,11 @@ $package_block
 [isolation]
 subdir = "$id"
 spoof_home = true
-home_subdirs = [".codex"]
-static_envs = { CODEX_HOME = "{home}/.codex", DEMO_STATE = "{state}/$id" }
+home_subdirs = []
+static_envs = { CODEX_HOME = "{runtime_home}/.codex", DEMO_STATE = "{state}/$id", DEMO_LOGS = "{runtime_logs}" }
 
 [[isolation.seed_files]]
-path = "{home}/.codex/config.toml"
+path = "{runtime_home}/.codex/config.toml"
 content = "analytics_enabled = false\\n"
 overwrite = false
 MANIFEST
@@ -123,7 +123,10 @@ run_lifecycle() {
 
   "$hm_bin" use demo --print-env > "$qa_root/use-env.out" 2>&1
   grep "HOME=$XDG_DATA_HOME/hm/runtimes/demo/home" "$qa_root/use-env.out" >/dev/null
-  grep "CODEX_HOME=$XDG_DATA_HOME/hm/runtimes/demo/home/.codex" "$qa_root/use-env.out" >/dev/null
+  grep "CODEX_HOME=$XDG_DATA_HOME/hm/runtimes/codex/home/.codex" "$qa_root/use-env.out" >/dev/null
+  grep "DEMO_LOGS=$XDG_DATA_HOME/hm/runtimes/codex/state/logs" "$qa_root/use-env.out" >/dev/null
+  test -d "$XDG_DATA_HOME/hm/runtimes/codex/home"
+  test -d "$XDG_DATA_HOME/hm/runtimes/codex/state/logs"
   assert_no_hostile_values "$qa_root/use-env.out"
   echo 'PASS use'
 
@@ -140,6 +143,7 @@ run_lifecycle() {
   "$hm_bin" harness remove demo --purge > "$qa_root/remove.out" 2>&1
   grep 'ARGV=uninstall -g demo-package' "$HM_QA_LOG_DIR/npm.log" >/dev/null
   test ! -e "$XDG_DATA_HOME/hm/runtimes/demo"
+  test -e "$XDG_DATA_HOME/hm/runtimes/codex"
   echo 'PASS remove'
 }
 
@@ -184,10 +188,12 @@ run_concurrent() {
   wait "$pid_a"
   wait "$pid_b"
 
-  grep "CODEX_HOME=$XDG_DATA_HOME/hm/runtimes/demo-a/home/.codex" "$qa_root/demo-a.env" >/dev/null
+  grep "CODEX_HOME=$XDG_DATA_HOME/hm/runtimes/codex/home/.codex" "$qa_root/demo-a.env" >/dev/null
   grep "DEMO_STATE=$XDG_DATA_HOME/hm/runtimes/demo-a/state/demo-a" "$qa_root/demo-a.env" >/dev/null
-  grep "CODEX_HOME=$XDG_DATA_HOME/hm/runtimes/demo-b/home/.codex" "$qa_root/demo-b.env" >/dev/null
+  grep "DEMO_LOGS=$XDG_DATA_HOME/hm/runtimes/codex/state/logs" "$qa_root/demo-a.env" >/dev/null
+  grep "CODEX_HOME=$XDG_DATA_HOME/hm/runtimes/codex/home/.codex" "$qa_root/demo-b.env" >/dev/null
   grep "DEMO_STATE=$XDG_DATA_HOME/hm/runtimes/demo-b/state/demo-b" "$qa_root/demo-b.env" >/dev/null
+  grep "DEMO_LOGS=$XDG_DATA_HOME/hm/runtimes/codex/state/logs" "$qa_root/demo-b.env" >/dev/null
   ! grep 'demo-b' "$qa_root/demo-a.env" >/dev/null
   ! grep 'demo-a' "$qa_root/demo-b.env" >/dev/null
   echo 'PASS concurrent demo-a'

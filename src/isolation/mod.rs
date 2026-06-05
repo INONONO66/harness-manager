@@ -51,17 +51,27 @@ pub struct IsolationPaths {
     pub home: PathBuf,
     pub state: PathBuf,
     pub tmp: PathBuf,
+    pub runtime_base: PathBuf,
+    pub runtime_home: PathBuf,
+    pub runtime_state: PathBuf,
+    pub runtime_logs: PathBuf,
 }
 
 impl IsolationPaths {
     pub fn try_from_spec(spec: &(impl IsolationRecipe + ?Sized)) -> Result<Self> {
         validate_relative_path(spec.subdir(), "isolation subdir")?;
+        validate_relative_path(spec.runtime_subdir(), "runtime isolation subdir")?;
         let base = hm_data_dir().join("runtimes").join(spec.subdir());
+        let runtime_base = hm_data_dir().join("runtimes").join(spec.runtime_subdir());
         Ok(Self {
             home: base.join("home"),
             state: base.join("state"),
             tmp: base.join("tmp"),
             base,
+            runtime_home: runtime_base.join("home"),
+            runtime_state: runtime_base.join("state"),
+            runtime_logs: runtime_base.join("state").join("logs"),
+            runtime_base,
         })
     }
 
@@ -70,13 +80,13 @@ impl IsolationPaths {
             .base
             .parent()
             .with_context(|| format!("isolation base has no parent: {}", self.base.display()))?;
-        let subdir = self
-            .base
+        let runtime_subdir = self
+            .runtime_base
             .file_name()
-            .with_context(|| format!("isolation base has no leaf: {}", self.base.display()))?;
+            .with_context(|| format!("runtime base has no leaf: {}", self.runtime_base.display()))?;
         Ok(runtime_root
             .join(".locks")
-            .join(format!("{}.lock", subdir.to_string_lossy())))
+            .join(format!("{}.lock", runtime_subdir.to_string_lossy())))
     }
 }
 
@@ -115,6 +125,9 @@ pub fn subst_tokens(template: &str, paths: &IsolationPaths) -> String {
         .replace("{home}", &paths.home.to_string_lossy())
         .replace("{state}", &paths.state.to_string_lossy())
         .replace("{tmp}", &paths.tmp.to_string_lossy())
+        .replace("{runtime_home}", &paths.runtime_home.to_string_lossy())
+        .replace("{runtime_state}", &paths.runtime_state.to_string_lossy())
+        .replace("{runtime_logs}", &paths.runtime_logs.to_string_lossy())
 }
 
 /// Create the isolation tree: `home/`, `state/`, `tmp/`, plus all `home_subdirs`.
@@ -127,6 +140,10 @@ pub fn ensure_isolation_tree(
     create_private_dir_all(&paths.home, &paths.base, "isolation home")?;
     create_private_dir_all(&paths.state, &paths.base, "isolation state")?;
     create_private_dir_all(&paths.tmp, &paths.base, "isolation tmp")?;
+    create_private_isolation_base(&paths.runtime_base, &root)?;
+    create_private_dir_all(&paths.runtime_home, &paths.runtime_base, "runtime home")?;
+    create_private_dir_all(&paths.runtime_state, &paths.runtime_base, "runtime state")?;
+    create_private_dir_all(&paths.runtime_logs, &paths.runtime_base, "runtime logs")?;
     for sub in spec.home_subdirs() {
         if sub.is_empty() {
             continue;
@@ -144,18 +161,33 @@ pub fn ensure_isolation_tree(
 pub fn seed_files(spec: &(impl IsolationRecipe + ?Sized), paths: &IsolationPaths) -> Result<()> {
     for seed in spec.seed_files() {
         let path = PathBuf::from(subst_tokens(seed.path, paths));
-        ensure_under_base(&path, &paths.base, "seed file")?;
-        reject_existing_symlink_chain(&path, &paths.base, "seed file")?;
+        let seed_base = seed_trusted_base(&path, paths)?;
+        ensure_under_base(&path, seed_base, "seed file")?;
+        reject_existing_symlink_chain(&path, seed_base, "seed file")?;
         if path.exists() && !seed.overwrite {
             continue;
         }
         if let Some(parent) = path.parent() {
-            create_private_dir_all(parent, &paths.base, "seed parent")?;
+            create_private_dir_all(parent, seed_base, "seed parent")?;
         }
         let content = subst_tokens(seed.content, paths);
         write_seed_file(&path, content.as_bytes(), seed.overwrite, seed.mode)?;
     }
     Ok(())
+}
+
+fn seed_trusted_base<'a>(path: &Path, paths: &'a IsolationPaths) -> Result<&'a Path> {
+    if path.starts_with(&paths.base) {
+        return Ok(&paths.base);
+    }
+    if path.starts_with(&paths.runtime_base) {
+        return Ok(&paths.runtime_base);
+    }
+    anyhow::bail!(
+        "seed file must stay under {} or {}",
+        paths.base.display(),
+        paths.runtime_base.display()
+    )
 }
 
 pub fn purge_isolation_tree(paths: &IsolationPaths) -> Result<()> {
