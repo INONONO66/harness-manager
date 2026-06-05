@@ -37,7 +37,7 @@ supported_providers = [
     "azure",
 ]
 overwrite = false
-endpoint_strip_v1 = false
+endpoint_strip_v1 = true
 
 [injection.provider_header_overrides.anthropic]
 "x-api-key" = "{bearer}"
