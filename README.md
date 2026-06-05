@@ -106,40 +106,21 @@ hm use claude --profile proxy -- --model claude-sonnet-4-20250514
 
 ## Harnesses
 
-Harnesses are wrapper/extension tools that sit on top of runtimes (oh-my-codex, oh-my-claudecode, ouroboros, etc.). Each harness gets its own isolated `$HOME` so it never pollutes the base runtime's config.
+Harnesses are wrapper or extension tools that sit on top of runtimes. Builtins and user plugins are both loaded as declarative TOML manifests, then validated before any install, update, launch, inject, or remove side effect runs. Each harness gets its own isolated `$HOME` under `$HM/runtimes/<harness-id>/home`.
 
 ```bash
-# List available harnesses and their install status
 hm harness list
-
-# Install / update / remove
-hm harness install omx
-hm harness update omx
-hm harness remove omx          # keeps isolation data
-hm harness remove omx --purge  # also deletes $HM/runtimes/omx/
-
-# Launch a harness (creates isolated HOME, seeds config, execs runtime)
-hm use omx                     # Codex CLI with oh-my-codex isolation
-hm use omc                     # Claude Code with oh-my-claudecode isolation
-hm use ouroboros               # Codex CLI with ouroboros isolation
-
-# Shorthand sugar (same as `hm use <harness>`)
-hm omx
-hm omc
-
-# Profile injection works with harnesses too
-hm use omx --profile proxy
+hm harness install <harness-id>
+hm harness update <harness-id>
+hm harness remove <harness-id>
+hm harness remove <harness-id> --purge
+hm use <harness-id> --profile proxy
+hm <harness-id> -- --help
 ```
 
-| Harness | Target Runtime | Package | CLI |
-|---|---|---|---|
-| omc | Claude Code | `npm i -g oh-my-claude-sisyphus` | `omc` |
-| omx | Codex CLI | `npm i -g oh-my-codex` | `omx` |
-| omo | OpenCode | `bunx oh-my-openagent install` (falls back to `npx --yes oh-my-openagent install`) | `omo` |
-| lazycodex | Codex CLI | `npx --yes lazycodex-ai install` | `lazycodex-ai` |
-| ouroboros | Codex CLI | `uv tool install ouroboros-ai` | `ouroboros` |
+`hm harness list` discovers bundled manifests plus user manifests from `$XDG_CONFIG_HOME/hm/harnesses.d/*.toml`, `$XDG_DATA_HOME/hm/harnesses.d/*.toml`, and `$XDG_DATA_HOME/hm/plugins/*/harness.toml`. User manifests cannot override bundled IDs; duplicates fail closed before side effects.
 
-Each harness runs in `$HM/runtimes/<harness-id>/home` — completely separate from both the real user config and the base runtime's isolation tree.
+Manifest authoring details, schema fields, `package.kind` values, and a complete `demo.toml` are documented in [docs/harness-manifest.md](docs/harness-manifest.md). The manifest model is declarative only: no shell snippets, no path launch binaries, no secret static env keys, and no seed files outside the isolation tree.
 
 ## Configuration
 

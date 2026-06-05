@@ -188,6 +188,26 @@ fn fixture(name: &str) -> String {
     std::fs::read_to_string(path).expect("fixture exists")
 }
 
+fn first_toml_block(input: &str) -> &str {
+    let start = input.find("```toml").expect("toml block starts") + "```toml".len();
+    let rest = &input[start..];
+    let end = rest.find("```").expect("toml block ends");
+    rest[..end].trim()
+}
+
+#[test]
+fn documented_demo_manifest_parses() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("docs")
+        .join("harness-manifest.md");
+    let docs = std::fs::read_to_string(path).expect("manifest docs exist");
+    let demo = first_toml_block(&docs);
+
+    let parsed = parse_toml("docs/harness-manifest.md", demo).expect("documented demo parses");
+
+    assert_eq!(parsed.id, "demo");
+}
+
 #[test]
 fn manifest_rejects_path_launch_binary() {
     let err = parse_toml(
