@@ -191,6 +191,24 @@ pub(super) fn validate_dotted_key(path_label: &str, field: &str, value: &str) ->
     Ok(())
 }
 
+/// Validates a TOML bare key: ASCII alphanumeric, underscore, or hyphen ONLY.
+/// Rejects dots, brackets, quotes, equals, whitespace, and control chars.
+/// This is the strict inverse of `validate_dotted_key`: a bare key cannot
+/// contain `.`. Used by `codex-config-seed` for top-level key names that
+/// must be written via `toml_edit::DocumentMut[key] = value(...)`.
+pub(super) fn validate_toml_bare_key(path_label: &str, field: &str, value: &str) -> Result<()> {
+    ensure(!value.is_empty(), path_label, field)?;
+    ensure(!has_control(value), path_label, field)?;
+    ensure(
+        value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'),
+        path_label,
+        field,
+    )?;
+    Ok(())
+}
+
 fn has_control(value: &str) -> bool {
     value.chars().any(char::is_control)
 }

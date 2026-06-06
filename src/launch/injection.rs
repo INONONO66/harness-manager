@@ -7,7 +7,9 @@ use serde_json::{Map, Value};
 
 use crate::config::ResolvedProfile;
 use crate::isolation::ensure_safe_write_path;
-use crate::runtimes::manifest::{EnvInjection, InjectionRecord, ProviderConfigSeedInjection};
+use crate::runtimes::manifest::{
+    CodexConfigSeedInjection, EnvInjection, InjectionRecord, ProviderConfigSeedInjection,
+};
 
 pub fn apply_injection(
     injection: &InjectionRecord,
@@ -22,6 +24,10 @@ pub fn apply_injection(
         }
         InjectionRecord::ProviderConfigSeed(spec) => {
             let path = apply_provider_config_seed_strategy(spec, resolved, home_dir)?;
+            Ok(Some(path))
+        }
+        InjectionRecord::CodexConfigSeed(spec) => {
+            let path = apply_codex_config_seed_strategy(spec, resolved, env, home_dir)?;
             Ok(Some(path))
         }
     }
@@ -90,6 +96,161 @@ pub struct ProviderConfigSeedPreview {
 pub enum ProviderConfigSeedSource {
     Gateway,
     LegacyLlm,
+}
+
+#[derive(Debug, Clone)]
+pub struct CodexConfigSeedPreview {
+    pub provider: String,
+    pub endpoint: String,
+    pub source: ProviderConfigSeedSource,
+    pub api_key_env: String,
+    pub config_path_display: String,
+    pub top_level_writes: Vec<(String, String)>,
+}
+
+fn resolve_codex_seed_source(
+    spec: &CodexConfigSeedInjection,
+    resolved: &ResolvedProfile,
+) -> Result<(String, String, ProviderConfigSeedSource)> {
+    if let Some(gateway) = resolved.gateway.as_ref() {
+        let bearer = gateway.bearer.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "gateway.bearer is required for codex-config-seed strategy (set [profiles.<name>.gateway].bearer)"
+            )
+        })?;
+        if !gateway.providers.contains(&spec.provider) {
+            anyhow::bail!(
+                "gateway routes providers [{}] but codex requires provider '{}' (supported by runtime: [{}])",
+                gateway.providers.join(", "),
+                spec.provider,
+                spec.supported_providers.join(", ")
+            );
+        }
+        return Ok((
+            bearer.to_string(),
+            gateway.base_url.clone(),
+            ProviderConfigSeedSource::Gateway,
+        ));
+    }
+
+    let endpoint = resolved.endpoint.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "codex-config-seed requires a [profiles.<name>.gateway] block or [profiles.<name>.llm] endpoint+bearer"
+        )
+    })?;
+    let bearer = resolved.bearer.as_deref().ok_or_else(|| {
+        anyhow::anyhow!("codex-config-seed legacy fallback requires [profiles.<name>.llm].bearer")
+    })?;
+    Ok((
+        bearer.to_string(),
+        endpoint.to_string(),
+        ProviderConfigSeedSource::LegacyLlm,
+    ))
+}
+
+pub fn validate_codex_config_seed(
+    spec: &CodexConfigSeedInjection,
+    resolved: &ResolvedProfile,
+) -> Result<CodexConfigSeedPreview> {
+    let (bearer, base_url, source) = resolve_codex_seed_source(spec, resolved)?;
+    validate_bearer_value_at_runtime(&bearer)?;
+
+    let effective_strip = resolved
+        .gateway
+        .as_ref()
+        .and_then(|gw| gw.endpoint_strip_v1_override)
+        .unwrap_or(spec.endpoint_strip_v1);
+    let endpoint = effective_endpoint(&base_url, effective_strip);
+
+    let top_level_writes = vec![
+        (spec.openai_base_url_key.clone(), endpoint.clone()),
+        (
+            spec.model_provider_key.clone(),
+            spec.model_provider_value.clone(),
+        ),
+    ];
+
+    let config_path_display = spec.config_path.replace("{home}", "<isolation-home>");
+    Ok(CodexConfigSeedPreview {
+        provider: spec.provider.clone(),
+        endpoint,
+        source,
+        api_key_env: spec.api_key_env.clone(),
+        config_path_display,
+        top_level_writes,
+    })
+}
+
+pub fn apply_codex_config_seed_strategy(
+    spec: &CodexConfigSeedInjection,
+    resolved: &ResolvedProfile,
+    env: &mut HashMap<String, String>,
+    home_dir: &Path,
+) -> Result<PathBuf> {
+    let (bearer, base_url, _source) = resolve_codex_seed_source(spec, resolved)?;
+    validate_bearer_value_at_runtime(&bearer)?;
+
+    let effective_strip = resolved
+        .gateway
+        .as_ref()
+        .and_then(|gw| gw.endpoint_strip_v1_override)
+        .unwrap_or(spec.endpoint_strip_v1);
+    let endpoint = effective_endpoint(&base_url, effective_strip);
+
+    let config_path = expand_home_template(&spec.config_path, home_dir);
+    ensure_safe_write_path(&config_path, home_dir, "injection.config_path")?;
+
+    let mut doc: toml_edit::DocumentMut = if config_path.exists() && !spec.overwrite {
+        let existing = fs::read_to_string(&config_path).with_context(|| {
+            format!(
+                "failed to read existing codex config {}; refusing to overwrite because overwrite=false",
+                config_path.display()
+            )
+        })?;
+        existing.parse().with_context(|| {
+            format!(
+                "failed to parse existing codex config {}; refusing to overwrite because overwrite=false",
+                config_path.display()
+            )
+        })?
+    } else {
+        toml_edit::DocumentMut::new()
+    };
+
+    doc[spec.openai_base_url_key.as_str()] = toml_edit::value(endpoint.as_str());
+    doc[spec.model_provider_key.as_str()] = toml_edit::value(spec.model_provider_value.as_str());
+
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+        ensure_safe_write_path(&config_path, home_dir, "injection.config_path")?;
+    }
+
+    let serialized = doc.to_string();
+    let tmp_path = config_path.with_extension("toml.hm-tmp");
+    {
+        use std::io::Write;
+        let mut tmp = fs::File::create(&tmp_path)
+            .with_context(|| format!("failed to create temp {}", tmp_path.display()))?;
+        tmp.write_all(serialized.as_bytes())
+            .with_context(|| format!("failed to write temp {}", tmp_path.display()))?;
+        tmp.sync_all()
+            .with_context(|| format!("failed to sync temp {}", tmp_path.display()))?;
+    }
+    fs::rename(&tmp_path, &config_path).with_context(|| {
+        format!(
+            "failed to rename {} to {}",
+            tmp_path.display(),
+            config_path.display()
+        )
+    })?;
+
+    for key in &spec.strip_envs {
+        env.remove(key);
+    }
+    env.insert(spec.api_key_env.clone(), bearer);
+
+    Ok(config_path)
 }
 
 /// Pure validation for `provider-config-seed` strategy: checks gateway/legacy
@@ -537,6 +698,26 @@ mod tests {
         }
     }
 
+    fn codex_config_seed_injection() -> CodexConfigSeedInjection {
+        CodexConfigSeedInjection {
+            config_path: "{home}/.codex/config.toml".to_string(),
+            openai_base_url_key: "openai_base_url".to_string(),
+            model_provider_key: "model_provider".to_string(),
+            model_provider_value: "openai".to_string(),
+            provider: "openai".to_string(),
+            supported_providers: vec!["openai".to_string()],
+            api_key_env: "CODEX_API_KEY".to_string(),
+            strip_envs: vec![
+                "OPENAI_API_KEY".to_string(),
+                "OPENAI_BASE_URL".to_string(),
+                "CODEX_API_KEY".to_string(),
+                "CODEX_ACCESS_TOKEN".to_string(),
+            ],
+            overwrite: false,
+            endpoint_strip_v1: false,
+        }
+    }
+
     #[test]
     fn env_strategy_strips_envs_and_injects_from_gateway_for_claude() {
         let mut env: HashMap<String, String> = HashMap::new();
@@ -902,6 +1083,453 @@ mod tests {
         assert!(
             !tmp.path().join(".config/opencode/opencode.json").exists(),
             "seed file must not be written when bearer is unsafe"
+        );
+    }
+
+    #[test]
+    fn codex_seed_creates_minimal_config_toml_with_top_level_keys() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "codex-bearer-abcd");
+        let mut env: HashMap<String, String> = HashMap::new();
+
+        let path = apply_codex_config_seed_strategy(
+            &codex_config_seed_injection(),
+            &resolved,
+            &mut env,
+            home,
+        )
+        .expect("seed writes");
+
+        assert_eq!(path, home.join(".codex/config.toml"));
+        let contents = fs::read_to_string(&path).unwrap();
+        assert!(
+            contents.contains(r#"openai_base_url = "https://gw.example/v1""#),
+            "missing openai_base_url top-level key: {contents}"
+        );
+        assert!(
+            contents.contains(r#"model_provider = "openai""#),
+            "missing model_provider top-level key: {contents}"
+        );
+    }
+
+    #[test]
+    fn codex_seed_sets_codex_api_key_env_and_strips_openai_envs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "codex-bearer-abcd");
+        let mut env: HashMap<String, String> = HashMap::new();
+        env.insert("OPENAI_API_KEY".to_string(), "host-key".to_string());
+        env.insert("OPENAI_BASE_URL".to_string(), "host-url".to_string());
+        env.insert("CODEX_API_KEY".to_string(), "host-codex-key".to_string());
+        env.insert("CODEX_ACCESS_TOKEN".to_string(), "host-token".to_string());
+        env.insert("UNRELATED".to_string(), "keep".to_string());
+
+        apply_codex_config_seed_strategy(&codex_config_seed_injection(), &resolved, &mut env, home)
+            .unwrap();
+
+        assert!(
+            !env.contains_key("OPENAI_API_KEY"),
+            "OPENAI_API_KEY must be stripped"
+        );
+        assert!(
+            !env.contains_key("OPENAI_BASE_URL"),
+            "OPENAI_BASE_URL must be stripped"
+        );
+        assert_eq!(
+            env.get("CODEX_API_KEY").map(String::as_str),
+            Some("codex-bearer-abcd"),
+            "CODEX_API_KEY must be reset to bearer"
+        );
+        assert!(
+            !env.contains_key("CODEX_ACCESS_TOKEN"),
+            "CODEX_ACCESS_TOKEN must be stripped"
+        );
+        assert_eq!(env.get("UNRELATED").map(String::as_str), Some("keep"));
+    }
+
+    #[test]
+    fn codex_seed_preserves_existing_seed_file_stanzas() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let target = home.join(".codex/config.toml");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(
+            &target,
+            r#"analytics_enabled = false
+check_for_update_on_startup = false
+cli_auth_credentials_store = "file"
+mcp_oauth_credentials_store = "file"
+"#,
+        )
+        .unwrap();
+
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "bearer-test");
+        let mut env: HashMap<String, String> = HashMap::new();
+        apply_codex_config_seed_strategy(&codex_config_seed_injection(), &resolved, &mut env, home)
+            .unwrap();
+
+        let contents = fs::read_to_string(&target).unwrap();
+        for key in [
+            "analytics_enabled = false",
+            "check_for_update_on_startup = false",
+            r#"cli_auth_credentials_store = "file""#,
+            r#"mcp_oauth_credentials_store = "file""#,
+            r#"openai_base_url = "https://gw.example/v1""#,
+            r#"model_provider = "openai""#,
+        ] {
+            assert!(
+                contents.contains(key),
+                "missing key '{key}' in merged config: {contents}"
+            );
+        }
+    }
+
+    #[test]
+    fn codex_seed_preserves_existing_user_top_level_keys_and_table() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let target = home.join(".codex/config.toml");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(
+            &target,
+            r#"model = "gpt-5"
+
+[history]
+persistence = "save-all"
+"#,
+        )
+        .unwrap();
+
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "bearer-test");
+        let mut env: HashMap<String, String> = HashMap::new();
+        apply_codex_config_seed_strategy(&codex_config_seed_injection(), &resolved, &mut env, home)
+            .unwrap();
+
+        let contents = fs::read_to_string(&target).unwrap();
+        assert!(
+            contents.contains(r#"model = "gpt-5""#),
+            "lost user `model` top-level: {contents}"
+        );
+        assert!(
+            contents.contains("[history]"),
+            "lost user [history] table: {contents}"
+        );
+        assert!(
+            contents.contains(r#"persistence = "save-all""#),
+            "lost history.persistence: {contents}"
+        );
+        assert!(
+            contents.contains(r#"openai_base_url = "https://gw.example/v1""#),
+            "missing openai_base_url: {contents}"
+        );
+        assert!(
+            contents.contains(r#"model_provider = "openai""#),
+            "missing model_provider: {contents}"
+        );
+    }
+
+    #[test]
+    fn codex_seed_preserves_existing_toml_comments_and_key_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let target = home.join(".codex/config.toml");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(
+            &target,
+            r#"# User comment preserved across hm injection
+analytics_enabled = false
+# Another comment
+check_for_update_on_startup = false
+"#,
+        )
+        .unwrap();
+
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "bearer-test");
+        let mut env: HashMap<String, String> = HashMap::new();
+        apply_codex_config_seed_strategy(&codex_config_seed_injection(), &resolved, &mut env, home)
+            .unwrap();
+
+        let contents = fs::read_to_string(&target).unwrap();
+        assert!(
+            contents.contains("# User comment preserved across hm injection"),
+            "lost user comment 1: {contents}"
+        );
+        assert!(
+            contents.contains("# Another comment"),
+            "lost user comment 2: {contents}"
+        );
+    }
+
+    #[test]
+    fn codex_seed_overwrites_existing_model_provider_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let target = home.join(".codex/config.toml");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(&target, "model_provider = \"anthropic\"\n").unwrap();
+
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "bearer-test");
+        let mut env: HashMap<String, String> = HashMap::new();
+        apply_codex_config_seed_strategy(&codex_config_seed_injection(), &resolved, &mut env, home)
+            .unwrap();
+
+        let contents = fs::read_to_string(&target).unwrap();
+        assert!(
+            contents.contains(r#"model_provider = "openai""#),
+            "model_provider must be overwritten to openai: {contents}"
+        );
+        assert!(
+            !contents.contains(r#"model_provider = "anthropic""#),
+            "previous anthropic value must be replaced: {contents}"
+        );
+    }
+
+    #[test]
+    fn codex_seed_errors_when_no_gateway_and_no_legacy_endpoint() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = empty_profile("no-gw");
+        let mut env: HashMap<String, String> = HashMap::new();
+
+        let err = apply_codex_config_seed_strategy(
+            &codex_config_seed_injection(),
+            &p,
+            &mut env,
+            tmp.path(),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("gateway"),
+            "expected gateway error: {err:#}"
+        );
+        assert!(
+            !tmp.path().join(".codex/config.toml").exists(),
+            "no file should be written"
+        );
+        assert!(env.is_empty(), "no env mutation expected");
+    }
+
+    #[test]
+    fn codex_seed_errors_when_gateway_provider_mismatch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let resolved = proxy_profile_with_gateway(vec!["anthropic"], "bearer");
+        let mut env: HashMap<String, String> = HashMap::new();
+
+        let err = apply_codex_config_seed_strategy(
+            &codex_config_seed_injection(),
+            &resolved,
+            &mut env,
+            tmp.path(),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("openai"),
+            "expected openai-mismatch error: {err:#}"
+        );
+        assert!(
+            !tmp.path().join(".codex/config.toml").exists(),
+            "no file should be written"
+        );
+        assert!(env.is_empty(), "no env mutation expected");
+    }
+
+    #[test]
+    fn codex_seed_rejects_bearer_crlf_before_writing_file_or_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "good\r\nX-Evil: injected");
+        let mut env: HashMap<String, String> = HashMap::new();
+        env.insert("OPENAI_API_KEY".to_string(), "preserve-me".to_string());
+        env.insert("OPENAI_BASE_URL".to_string(), "preserve-me-too".to_string());
+
+        let err = apply_codex_config_seed_strategy(
+            &codex_config_seed_injection(),
+            &resolved,
+            &mut env,
+            tmp.path(),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("bearer contains CRLF/NUL"),
+            "expected CRLF rejection: {err:#}"
+        );
+        assert!(
+            !tmp.path().join(".codex/config.toml").exists(),
+            "file MUST NOT be written on bearer error"
+        );
+        assert_eq!(
+            env.get("OPENAI_API_KEY").map(String::as_str),
+            Some("preserve-me"),
+            "OPENAI_API_KEY must remain (strip did not execute)"
+        );
+        assert_eq!(
+            env.get("OPENAI_BASE_URL").map(String::as_str),
+            Some("preserve-me-too"),
+            "OPENAI_BASE_URL must remain (strip did not execute)"
+        );
+        assert!(
+            !env.contains_key("CODEX_API_KEY"),
+            "CODEX_API_KEY must not be set with unsafe bearer"
+        );
+    }
+
+    #[test]
+    fn codex_seed_rejects_bearer_null_byte_before_writing_file_or_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "bad\0bearer");
+        let mut env: HashMap<String, String> = HashMap::new();
+        env.insert("OPENAI_API_KEY".to_string(), "preserve-me".to_string());
+
+        let err = apply_codex_config_seed_strategy(
+            &codex_config_seed_injection(),
+            &resolved,
+            &mut env,
+            tmp.path(),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("bearer contains CRLF/NUL"),
+            "expected NUL rejection: {err:#}"
+        );
+        assert!(
+            !tmp.path().join(".codex/config.toml").exists(),
+            "file MUST NOT be written"
+        );
+        assert_eq!(
+            env.get("OPENAI_API_KEY").map(String::as_str),
+            Some("preserve-me"),
+            "strip must not execute on bearer NUL"
+        );
+    }
+
+    #[test]
+    fn codex_seed_refuses_to_overwrite_unparseable_toml_when_overwrite_false() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let target = home.join(".codex/config.toml");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let garbage: &[u8] = b"\xff\xff this is not toml \xee\n";
+        fs::write(&target, garbage).unwrap();
+        let original = fs::read(&target).unwrap();
+
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "bearer-test");
+        let mut env: HashMap<String, String> = HashMap::new();
+
+        let err = apply_codex_config_seed_strategy(
+            &codex_config_seed_injection(),
+            &resolved,
+            &mut env,
+            home,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("refusing to overwrite")
+                || err.to_string().contains("failed to parse"),
+            "expected refuse-to-overwrite error: {err:#}"
+        );
+        let after = fs::read(&target).unwrap();
+        assert_eq!(after, original, "original bytes must be unchanged");
+    }
+
+    #[test]
+    fn codex_seed_endpoint_strip_v1_true_drops_v1_suffix() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let mut spec = codex_config_seed_injection();
+        spec.endpoint_strip_v1 = true;
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "bearer-test");
+        let mut env: HashMap<String, String> = HashMap::new();
+
+        let path = apply_codex_config_seed_strategy(&spec, &resolved, &mut env, home).unwrap();
+
+        let contents = fs::read_to_string(&path).unwrap();
+        assert!(
+            contents.contains(r#"openai_base_url = "https://gw.example""#),
+            "expected /v1 stripped: {contents}"
+        );
+    }
+
+    #[test]
+    fn codex_seed_legacy_llm_path_works_with_single_provider() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let mut p = empty_profile("legacy");
+        p.endpoint = Some("https://legacy.example/v1".to_string());
+        p.bearer = Some("legacy-codex-bearer".to_string());
+        let mut env: HashMap<String, String> = HashMap::new();
+
+        let path =
+            apply_codex_config_seed_strategy(&codex_config_seed_injection(), &p, &mut env, home)
+                .unwrap();
+
+        let contents = fs::read_to_string(&path).unwrap();
+        assert!(
+            contents.contains(r#"openai_base_url = "https://legacy.example/v1""#),
+            "expected legacy endpoint: {contents}"
+        );
+        assert!(
+            contents.contains(r#"model_provider = "openai""#),
+            "expected model_provider: {contents}"
+        );
+        assert_eq!(
+            env.get("CODEX_API_KEY").map(String::as_str),
+            Some("legacy-codex-bearer"),
+            "CODEX_API_KEY must be set from legacy bearer"
+        );
+    }
+
+    #[test]
+    fn codex_seed_does_not_write_bearer_to_config_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let unique_bearer = "qa-distinct-bearer-7K9mN2pV5xL3wQ8jR4";
+        let resolved = proxy_profile_with_gateway(vec!["openai"], unique_bearer);
+        let mut env: HashMap<String, String> = HashMap::new();
+
+        let path = apply_codex_config_seed_strategy(
+            &codex_config_seed_injection(),
+            &resolved,
+            &mut env,
+            home,
+        )
+        .unwrap();
+
+        let contents = fs::read_to_string(&path).unwrap();
+        assert!(
+            !contents.contains(unique_bearer),
+            "bearer must NEVER appear in the written config.toml, but file contains it: {contents}"
+        );
+        assert_eq!(
+            env.get("CODEX_API_KEY").map(String::as_str),
+            Some(unique_bearer),
+            "bearer must reach env, not the file"
+        );
+    }
+
+    #[test]
+    fn validate_codex_config_seed_reports_top_level_writes() {
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "bearer-abc");
+        let preview =
+            validate_codex_config_seed(&codex_config_seed_injection(), &resolved).unwrap();
+
+        assert_eq!(preview.provider, "openai");
+        assert_eq!(preview.endpoint, "https://gw.example/v1");
+        assert_eq!(preview.source, ProviderConfigSeedSource::Gateway);
+        assert_eq!(preview.api_key_env, "CODEX_API_KEY");
+        assert!(preview.config_path_display.contains(".codex/config.toml"));
+        assert_eq!(preview.top_level_writes.len(), 2);
+        let writes: BTreeMap<_, _> = preview.top_level_writes.iter().cloned().collect();
+        assert_eq!(
+            writes.get("openai_base_url").map(String::as_str),
+            Some("https://gw.example/v1")
+        );
+        assert_eq!(
+            writes.get("model_provider").map(String::as_str),
+            Some("openai")
         );
     }
 }

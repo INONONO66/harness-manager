@@ -11,7 +11,7 @@ use validation::{
     ensure, parse_mode, validate_args, validate_binary_name, validate_config_path,
     validate_display_name, validate_dotted_key, validate_env_name_shape, validate_header_name,
     validate_header_value_template, validate_provider_name, validate_relative_path,
-    validate_seed_path, validate_static_env_key, validate_template_value,
+    validate_seed_path, validate_static_env_key, validate_template_value, validate_toml_bare_key,
 };
 
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
@@ -91,6 +91,7 @@ pub enum AuthLoginRecord {
 pub enum InjectionRecord {
     Env(EnvInjection),
     ProviderConfigSeed(ProviderConfigSeedInjection),
+    CodexConfigSeed(CodexConfigSeedInjection),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +116,29 @@ pub struct ProviderConfigSeedInjection {
     pub endpoint_strip_v1: bool,
     pub provider_header_overrides: BTreeMap<String, BTreeMap<String, String>>,
     pub legacy_provider: Option<String>,
+}
+
+/// Codex CLI 0.137 expects a top-level `openai_base_url = "..."` and
+/// `model_provider = "openai"` in `~/.codex/config.toml`. Built-in providers
+/// in codex are merged with `or_insert`, so a user-defined
+/// `[model_providers.openai]` block is IGNORED. The only ways to redirect
+/// codex are: (a) top-level `openai_base_url` (modifies the built-in openai
+/// provider) or (b) a custom provider name + `model_provider = "<name>"`.
+/// This strategy implements (a) plus env injection of `CODEX_API_KEY`
+/// (codex's runtime auth env, NOT `OPENAI_API_KEY` which only prefills the
+/// onboarding UI).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodexConfigSeedInjection {
+    pub config_path: String,
+    pub openai_base_url_key: String,
+    pub model_provider_key: String,
+    pub model_provider_value: String,
+    pub provider: String,
+    pub supported_providers: Vec<String>,
+    pub api_key_env: String,
+    pub strip_envs: Vec<String>,
+    pub overwrite: bool,
+    pub endpoint_strip_v1: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -232,6 +256,21 @@ enum InjectionManifest {
         provider_header_overrides: BTreeMap<String, BTreeMap<String, String>>,
         #[serde(default)]
         legacy_provider: Option<String>,
+    },
+    CodexConfigSeed {
+        config_path: String,
+        openai_base_url_key: String,
+        model_provider_key: String,
+        model_provider_value: String,
+        provider: String,
+        supported_providers: Vec<String>,
+        api_key_env: String,
+        #[serde(default)]
+        strip_envs: Vec<String>,
+        #[serde(default)]
+        overwrite: bool,
+        #[serde(default)]
+        endpoint_strip_v1: bool,
     },
 }
 
@@ -580,6 +619,73 @@ fn convert_injection(path_label: &str, injection: InjectionManifest) -> Result<I
                     legacy_provider,
                 },
             ))
+        }
+        InjectionManifest::CodexConfigSeed {
+            config_path,
+            openai_base_url_key,
+            model_provider_key,
+            model_provider_value,
+            provider,
+            supported_providers,
+            api_key_env,
+            strip_envs,
+            overwrite,
+            endpoint_strip_v1,
+        } => {
+            validate_config_path(path_label, "injection.config_path", &config_path)?;
+            validate_template_value(path_label, "injection.config_path", &config_path)?;
+            validate_toml_bare_key(
+                path_label,
+                "injection.openai_base_url_key",
+                &openai_base_url_key,
+            )?;
+            validate_toml_bare_key(
+                path_label,
+                "injection.model_provider_key",
+                &model_provider_key,
+            )?;
+            ensure(
+                !model_provider_value.is_empty(),
+                path_label,
+                "injection.model_provider_value",
+            )?;
+            ensure(
+                !model_provider_value.chars().any(char::is_control),
+                path_label,
+                "injection.model_provider_value",
+            )?;
+            validate_provider_name(path_label, "injection.provider", &provider)?;
+            ensure(
+                !supported_providers.is_empty(),
+                path_label,
+                "injection.supported_providers",
+            )?;
+            for p in &supported_providers {
+                validate_provider_name(path_label, "injection.supported_providers", p)?;
+            }
+            // M-6: supported_providers must contain provider, checked at manifest-parse
+            // time (mirrors the Env arm above).
+            ensure(
+                supported_providers.contains(&provider),
+                path_label,
+                "injection.supported_providers",
+            )?;
+            validate_env_name_shape(path_label, "injection.api_key_env", &api_key_env)?;
+            for var in &strip_envs {
+                validate_env_name_shape(path_label, "injection.strip_envs", var)?;
+            }
+            Ok(InjectionRecord::CodexConfigSeed(CodexConfigSeedInjection {
+                config_path,
+                openai_base_url_key,
+                model_provider_key,
+                model_provider_value,
+                provider,
+                supported_providers,
+                api_key_env,
+                strip_envs,
+                overwrite,
+                endpoint_strip_v1,
+            }))
         }
     }
 }

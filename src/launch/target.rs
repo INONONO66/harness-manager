@@ -115,5 +115,8 @@ fn injection_strip_envs(injection: &crate::runtimes::manifest::InjectionRecord) 
     match injection {
         InjectionRecord::Env(env) => env.strip_envs.iter().map(String::as_str).collect(),
         InjectionRecord::ProviderConfigSeed(_) => Vec::new(),
+        InjectionRecord::CodexConfigSeed(spec) => {
+            spec.strip_envs.iter().map(String::as_str).collect()
+        }
     }
 }

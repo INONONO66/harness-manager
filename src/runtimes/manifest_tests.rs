@@ -290,3 +290,145 @@ supported_providers = ["anthropic"]
         "expected header error, got: {err:#}"
     );
 }
+
+#[test]
+fn parser_rejects_codex_config_seed_with_dotted_key() {
+    let input = r#"
+schema_version = 1
+name = "BadCodex"
+binary_names = ["badcodex"]
+version_arg = "--version"
+
+[config_locator]
+kind = "env-or-home"
+env = ""
+home_relative = ".badcodex"
+
+[auth_login]
+kind = "unsupported"
+
+[injection]
+strategy = "codex-config-seed"
+config_path = "{home}/.badcodex/config.toml"
+openai_base_url_key = "a.b"
+model_provider_key = "model_provider"
+model_provider_value = "openai"
+provider = "openai"
+supported_providers = ["openai"]
+api_key_env = "CODEX_API_KEY"
+overwrite = false
+endpoint_strip_v1 = false
+"#;
+    let err = parse_toml("badcodex.toml", input)
+        .expect_err("dotted key in openai_base_url_key must fail");
+    assert!(
+        err.to_string().contains("openai_base_url_key"),
+        "expected openai_base_url_key error, got: {err:#}"
+    );
+}
+
+#[test]
+fn parser_rejects_codex_config_seed_with_provider_not_in_supported() {
+    let input = r#"
+schema_version = 1
+name = "BadCodex"
+binary_names = ["badcodex"]
+version_arg = "--version"
+
+[config_locator]
+kind = "env-or-home"
+env = ""
+home_relative = ".badcodex"
+
+[auth_login]
+kind = "unsupported"
+
+[injection]
+strategy = "codex-config-seed"
+config_path = "{home}/.badcodex/config.toml"
+openai_base_url_key = "openai_base_url"
+model_provider_key = "model_provider"
+model_provider_value = "openai"
+provider = "openai"
+supported_providers = ["anthropic"]
+api_key_env = "CODEX_API_KEY"
+overwrite = false
+endpoint_strip_v1 = false
+"#;
+    let err = parse_toml("badcodex.toml", input).expect_err("provider not in supported must fail");
+    assert!(
+        err.to_string().contains("supported_providers"),
+        "expected supported_providers error, got: {err:#}"
+    );
+}
+
+#[test]
+fn parser_rejects_codex_config_seed_with_bad_env_name() {
+    let input = r#"
+schema_version = 1
+name = "BadCodex"
+binary_names = ["badcodex"]
+version_arg = "--version"
+
+[config_locator]
+kind = "env-or-home"
+env = ""
+home_relative = ".badcodex"
+
+[auth_login]
+kind = "unsupported"
+
+[injection]
+strategy = "codex-config-seed"
+config_path = "{home}/.badcodex/config.toml"
+openai_base_url_key = "openai_base_url"
+model_provider_key = "model_provider"
+model_provider_value = "openai"
+provider = "openai"
+supported_providers = ["openai"]
+api_key_env = "1bad"
+overwrite = false
+endpoint_strip_v1 = false
+"#;
+    let err =
+        parse_toml("badcodex.toml", input).expect_err("lowercase/digit-leading env name must fail");
+    assert!(
+        err.to_string().contains("api_key_env"),
+        "expected api_key_env error, got: {err:#}"
+    );
+}
+
+#[test]
+fn parser_rejects_codex_config_seed_outside_home() {
+    let input = r#"
+schema_version = 1
+name = "BadCodex"
+binary_names = ["badcodex"]
+version_arg = "--version"
+
+[config_locator]
+kind = "env-or-home"
+env = ""
+home_relative = ".badcodex"
+
+[auth_login]
+kind = "unsupported"
+
+[injection]
+strategy = "codex-config-seed"
+config_path = "/etc/passwd"
+openai_base_url_key = "openai_base_url"
+model_provider_key = "model_provider"
+model_provider_value = "openai"
+provider = "openai"
+supported_providers = ["openai"]
+api_key_env = "CODEX_API_KEY"
+overwrite = false
+endpoint_strip_v1 = false
+"#;
+    let err = parse_toml("badcodex.toml", input).expect_err("config_path must start with {home}/");
+    assert!(
+        err.to_string().contains("config_path"),
+        "expected config_path error, got: {err:#}"
+    );
+}

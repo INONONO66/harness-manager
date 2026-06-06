@@ -3,7 +3,8 @@ use colored::Colorize;
 use crate::config;
 use crate::harnesses::registry::HarnessRegistry;
 use crate::launch::injection::{
-    apply_env_strategy, validate_provider_config_seed, ProviderConfigSeedSource,
+    apply_env_strategy, validate_codex_config_seed, validate_provider_config_seed,
+    ProviderConfigSeedSource,
 };
 use crate::runtimes;
 use crate::runtimes::manifest::{InjectionRecord, RuntimeRecord};
@@ -151,6 +152,52 @@ pub fn run_inject_plan(
                         for p in &preview.providers {
                             println!("      {} {}", "✓".green(), p);
                         }
+                    }
+                    Err(e) => {
+                        println!("    {} {}", "✗".red(), e);
+                    }
+                }
+            }
+            InjectionRecord::CodexConfigSeed(codex_spec) => {
+                println!("  {}", "Strip:".red().bold());
+                for var in &codex_spec.strip_envs {
+                    let current = std::env::var(var).ok();
+                    let status = match &current {
+                        Some(val) => format!("{} → (removed)", mask_value(val)).red().to_string(),
+                        None => "(not set)".dimmed().to_string(),
+                    };
+                    println!("    {:30} {}", var, status);
+                }
+
+                println!("  {}", "Seed:".green().bold());
+                match validate_codex_config_seed(codex_spec, &resolved) {
+                    Ok(preview) => {
+                        println!("    file: {}", preview.config_path_display.cyan());
+                        let source_label = match preview.source {
+                            ProviderConfigSeedSource::Gateway => "gateway",
+                            ProviderConfigSeedSource::LegacyLlm => {
+                                "legacy llm → single-provider seed"
+                            }
+                        };
+                        println!("    source: {}", source_label.cyan());
+                        println!("    endpoint: {}", preview.endpoint.green());
+                        println!("    provider: {} {}", "✓".green(), preview.provider);
+                        println!("    top_level writes:");
+                        for (k, v) in &preview.top_level_writes {
+                            println!("      {} = {}", k, v.green());
+                        }
+                        println!("  {}", "Inject:".green().bold());
+                        let bearer = resolved
+                            .gateway
+                            .as_ref()
+                            .and_then(|gw| gw.bearer.as_deref())
+                            .or(resolved.bearer.as_deref())
+                            .unwrap_or("");
+                        println!(
+                            "    {:30} → {}",
+                            preview.api_key_env,
+                            secrets::mask_secret(bearer).green()
+                        );
                     }
                     Err(e) => {
                         println!("    {} {}", "✗".red(), e);
