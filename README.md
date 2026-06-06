@@ -218,16 +218,20 @@ $XDG_DATA_HOME/hm/runtimes.d/*.toml
 $XDG_DATA_HOME/hm/plugins/*/runtime.toml
 ```
 
-Each manifest declares one of two injection strategies. `hm` validates the full registry before any side effect. User runtime manifests with the same normalized binary name or display name as a builtin override the builtin (with a `note:` on stderr unless the file is byte-identical to the embedded copy). A single user manifest that would shadow MULTIPLE builtins fails closed, and two user manifests sharing a route also fail closed.
+Each manifest declares one of three injection strategies. `hm` validates the full registry before any side effect. User runtime manifests with the same normalized binary name or display name as a builtin override the builtin (with a `note:` on stderr unless the file is byte-identical to the embedded copy). A single user manifest that would shadow MULTIPLE builtins fails closed, and two user manifests sharing a route also fail closed.
 
 | Runtime | Detection | Auth | Strategy | Injection |
 |---|---|---|---|---|
 | Claude Code | `claude` binary + `~/.claude/` | OAuth + Keychain + env | `env` | `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` (with `/v1` stripped) |
-| Codex CLI | `codex` binary + `~/.codex/` | ChatGPT OAuth + env | `env` | `OPENAI_BASE_URL` + `OPENAI_API_KEY` |
+| Codex CLI | `codex` binary + `~/.codex/` | ChatGPT OAuth + env | `codex-config-seed` | writes top-level `openai_base_url` + `model_provider` to `~/.codex/config.toml` (merging with existing seed_files content) and injects `CODEX_API_KEY` env (codex 0.137 reads this at runtime, not `OPENAI_API_KEY`) |
 | OpenCode | `opencode` binary + `~/.config/opencode/` | Provider auth + env | `provider-config-seed` | seeds `~/.config/opencode/opencode.json` `provider.<id>.options.{baseURL,apiKey,headers}` for every gateway provider; falls back to `[profiles.X.llm]` as single-provider `openai` seed |
 | Pi | `pi` binary + `~/.pi/agent/` | Token file | `provider-config-seed` | seeds `~/.pi/agent/models.json` `providers.<id>.{baseUrl,apiKey,headers}` for every gateway provider |
 
-The two strategies are the only ones in core. Per-runtime knowledge lives in the manifest.
+The three strategies are the only ones in core. Per-runtime knowledge lives in the manifest. Picker tree:
+
+- Endpoint goes in an env var, single provider per runtime → `env`
+- Config file holds repeated provider sub-trees keyed by provider name → `provider-config-seed`
+- Config file holds top-level keys (no per-provider table) AND auth comes from an env var → `codex-config-seed`
 
 ### Injection strategy 1: `env` (single-provider runtimes)
 
@@ -266,6 +270,25 @@ legacy_provider = "openai"
 
 `hm use opencode --profile proxy` writes a JSON file under the isolation home (never the user's real `~`). The file is deep-merged into any existing user content. `legacy_provider` (optional) tells the strategy how to fall back to `[profiles.X.llm]`: hm seeds that one provider with `llm.endpoint` and `llm.bearer`.
 
+### Injection strategy 3: `codex-config-seed` (top-level TOML + env hybrid)
+
+```toml
+[injection]
+strategy = "codex-config-seed"
+config_path = "{home}/.codex/config.toml"
+openai_base_url_key = "openai_base_url"
+model_provider_key = "model_provider"
+model_provider_value = "openai"
+provider = "openai"
+supported_providers = ["openai"]
+api_key_env = "CODEX_API_KEY"
+strip_envs = ["OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"]
+overwrite = false
+endpoint_strip_v1 = false
+```
+
+`hm use codex --profile proxy` writes two top-level keys to the TOML config (via `toml_edit::DocumentMut`, preserving comments and existing keys from `[isolation.seed_files]`), then strips `strip_envs` from the launch env and sets `api_key_env` to the resolved bearer. The bearer NEVER reaches the file — only the env var. This strategy is single-provider only: the gateway must route the configured `provider` (or the legacy `[profiles.X.llm]` fallback is used).
+
 Adding a new runtime requires only a TOML file. No Rust change.
 
 ### Security
@@ -293,7 +316,7 @@ src/
   isolation/           isolated env, seed files, path safety, locks
   config/              profile config parsing + gateway schema + secret references
   launch/
-    injection.rs         the only place that knows env vs config-seed strategy
+    injection.rs         the only place that knows env / provider-config-seed / codex-config-seed
     target.rs            runtime/harness resolution
     mod.rs               run_use and exec
   inject/mod.rs        hm inject plan dry-run (calls validate_provider_config_seed)

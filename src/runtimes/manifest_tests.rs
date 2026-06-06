@@ -81,17 +81,26 @@ fn claude_manifest_parses_with_env_injection_and_keychain_variant() {
 }
 
 #[test]
-fn codex_manifest_parses_with_env_strategy() {
+fn codex_manifest_parses_with_codex_config_seed_strategy() {
     let codex = parse_for("Codex CLI");
     let injection = codex.injection.expect("injection present");
     match injection {
-        InjectionRecord::Env(env) => {
-            assert_eq!(env.provider, "openai");
-            assert_eq!(env.endpoint_env, "OPENAI_BASE_URL");
-            assert!(!env.endpoint_strip_v1);
-            assert!(env.strip_envs.contains(&"CODEX_API_KEY".to_string()));
+        InjectionRecord::CodexConfigSeed(spec) => {
+            assert_eq!(spec.config_path, "{home}/.codex/config.toml");
+            assert_eq!(spec.openai_base_url_key, "openai_base_url");
+            assert_eq!(spec.model_provider_key, "model_provider");
+            assert_eq!(spec.model_provider_value, "openai");
+            assert_eq!(spec.provider, "openai");
+            assert_eq!(spec.supported_providers, vec!["openai".to_string()]);
+            assert_eq!(spec.api_key_env, "CODEX_API_KEY");
+            assert!(spec.strip_envs.contains(&"OPENAI_API_KEY".to_string()));
+            assert!(spec.strip_envs.contains(&"OPENAI_BASE_URL".to_string()));
+            assert!(spec.strip_envs.contains(&"CODEX_API_KEY".to_string()));
+            assert!(spec.strip_envs.contains(&"CODEX_ACCESS_TOKEN".to_string()));
+            assert!(!spec.overwrite);
+            assert!(!spec.endpoint_strip_v1);
         }
-        _ => panic!("expected env strategy"),
+        _ => panic!("expected codex-config-seed strategy"),
     }
 }
 

@@ -26,13 +26,28 @@ label = "Codex"
 binary = "codex"
 args = ["auth", "login"]
 
+# Verified against openai/codex@f221438 (rust-v0.137.0).
+# Codex 0.137 reads `openai_base_url` and `model_provider` from
+# ~/.codex/config.toml at runtime, and `CODEX_API_KEY` from env (NOT
+# OPENAI_API_KEY — that only prefills the onboarding UI). Built-in
+# providers in codex use `or_insert` merge order, so a user-defined
+# [model_providers.openai] block is IGNORED — only the top-level
+# `openai_base_url` redirects traffic. The injection seed merges into
+# the same path as [isolation.seed_files] below; both writes are
+# preserved by toml_edit::DocumentMut round-trip.
+# If codex renames any of these keys or changes /v1/responses path,
+# update here.
 [injection]
-strategy = "env"
+strategy = "codex-config-seed"
+config_path = "{home}/.codex/config.toml"
+openai_base_url_key = "openai_base_url"
+model_provider_key = "model_provider"
+model_provider_value = "openai"
 provider = "openai"
 supported_providers = ["openai"]
-endpoint_env = "OPENAI_BASE_URL"
-api_key_env = "OPENAI_API_KEY"
+api_key_env = "CODEX_API_KEY"
 strip_envs = ["OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"]
+overwrite = false
 endpoint_strip_v1 = false
 
 [isolation]
