@@ -113,11 +113,11 @@ fn probe_json_file(
         });
     }
 
-    let any_meaningful = json
+    let valid_credentials = json
         .as_object()
-        .map(|obj| obj.values().any(is_meaningful_json_value))
+        .map(|obj| obj.values().any(is_valid_pi_credential))
         .unwrap_or(false);
-    if !any_meaningful {
+    if !valid_credentials {
         return None;
     }
     Some(AuthStatus::Valid {
@@ -191,22 +191,7 @@ fn probe_data_dir_json(data_subdir: &str, file_name: &str, label: &str) -> Optio
 }
 
 fn probe_data_dir_json_at(file: &Path, label: &str) -> Option<AuthStatus> {
-    if !file.is_file() {
-        return None;
-    }
-    let content = std::fs::read_to_string(file).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let object = json.as_object()?;
-    let valid_count = object
-        .values()
-        .filter(|v| is_valid_provider_credential(v))
-        .count();
-    if valid_count == 0 {
-        return None;
-    }
-    Some(AuthStatus::Valid {
-        detail: format!("{} ({} providers)", label, valid_count),
-    })
+    count_valid_credentials_in_file(file, label, is_valid_opencode_credential)
 }
 
 fn probe_provider_auth_file(
@@ -216,16 +201,51 @@ fn probe_provider_auth_file(
 ) -> Option<AuthStatus> {
     let dir = config_dir?;
     let file = dir.join(relative_path);
-    probe_data_dir_json_at(&file, label)
+    count_valid_credentials_in_file(&file, label, is_valid_pi_credential)
 }
 
-fn is_valid_provider_credential(value: &serde_json::Value) -> bool {
+fn count_valid_credentials_in_file<F>(file: &Path, label: &str, is_valid: F) -> Option<AuthStatus>
+where
+    F: Fn(&serde_json::Value) -> bool,
+{
+    if !file.is_file() {
+        return None;
+    }
+    let content = std::fs::read_to_string(file).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let object = json.as_object()?;
+    let valid_count = object.values().filter(|v| is_valid(v)).count();
+    if valid_count == 0 {
+        return None;
+    }
+    Some(AuthStatus::Valid {
+        detail: format!("{} ({} providers)", label, valid_count),
+    })
+}
+
+/// OpenCode `auth.json`: Schema.Union([Oauth, Api, WellKnown]).
+/// Source: openai-equivalent at sst/opencode packages/opencode/src/auth/index.ts.
+fn is_valid_opencode_credential(value: &serde_json::Value) -> bool {
+    is_valid_typed_credential(value, &["api", "oauth", "wellknown"])
+}
+
+/// Pi `auth.json`: API key + OAuth records.
+/// Source: earendil-works/pi packages/coding-agent/docs/providers.md +
+/// custom-provider.md (OAuthCredentials interface).
+fn is_valid_pi_credential(value: &serde_json::Value) -> bool {
+    is_valid_typed_credential(value, &["api_key", "oauth"])
+}
+
+fn is_valid_typed_credential(value: &serde_json::Value, allowed_types: &[&str]) -> bool {
     let Some(obj) = value.as_object() else {
         return false;
     };
     let Some(type_str) = obj.get("type").and_then(|v| v.as_str()) else {
         return false;
     };
+    if !allowed_types.contains(&type_str) {
+        return false;
+    }
     let non_empty = |key: &str| -> bool {
         obj.get(key)
             .and_then(|v| v.as_str())
@@ -235,13 +255,31 @@ fn is_valid_provider_credential(value: &serde_json::Value) -> bool {
     match type_str {
         "api" | "api_key" => non_empty("key"),
         "oauth" => {
-            non_empty("access")
-                && non_empty("refresh")
-                && obj.get("expires").map(|v| v.is_number()).unwrap_or(false)
+            non_empty("access") && non_empty("refresh") && is_valid_expires(obj.get("expires"))
         }
         "wellknown" => non_empty("key") && non_empty("token"),
         _ => false,
     }
+}
+
+/// OAuth `expires` per upstream is a non-negative integer (NonNegativeInt in
+/// OpenCode; milliseconds-since-epoch integer in Pi). Reject negative values
+/// and any fractional/non-finite numbers — these can never be a real expiry.
+fn is_valid_expires(value: Option<&serde_json::Value>) -> bool {
+    let Some(v) = value else {
+        return false;
+    };
+    if let Some(i) = v.as_i64() {
+        return i >= 0;
+    }
+    if let Some(u) = v.as_u64() {
+        let _ = u;
+        return true;
+    }
+    if let Some(f) = v.as_f64() {
+        return f.is_finite() && f >= 0.0 && f.fract() == 0.0;
+    }
+    false
 }
 
 fn resolve_data_file(data_subdir: &str, file_name: &str) -> Option<std::path::PathBuf> {
@@ -1033,13 +1071,38 @@ mod json_file_tests {
     }
 
     #[test]
-    fn json_file_no_existence_field_with_one_real_value_returns_valid() {
-        let (dir, file) = write_json("no-field-real", r#"{"token": "real-secret"}"#);
+    fn json_file_no_existence_field_legacy_pi_credential_returns_valid() {
+        let (dir, file) = write_json(
+            "no-field-real",
+            r#"{"anthropic": {"type": "api_key", "key": "sk-real"}}"#,
+        );
         let result = probe_json_file(Some(&dir), &file, "", "Pi token");
         let _ = std::fs::remove_dir_all(&dir);
         assert!(
             matches!(result, Some(AuthStatus::Valid { .. })),
-            "no-existence-field probe must accept a meaningful value; got {result:?}"
+            "legacy Pi-style probe (json-file + empty existence_field) must accept a typed Pi credential shape, auto-upgrading legacy hm-init copies to safe validation; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_no_existence_field_rejects_arbitrary_non_credential_json() {
+        let (dir, file) = write_json("no-field-arbitrary", r#"{"foo": "bar", "baz": 42}"#);
+        let result = probe_json_file(Some(&dir), &file, "", "Pi token");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "legacy probe must NOT accept arbitrary JSON (Oracle's regression target for legacy hm-init Pi users); got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_no_existence_field_rejects_untyped_record() {
+        let (dir, file) = write_json("no-field-untyped", r#"{"openai": {"key": "k"}}"#);
+        let result = probe_json_file(Some(&dir), &file, "", "Pi token");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "legacy probe must require typed credential record; got {result:?}"
         );
     }
 
@@ -1234,7 +1297,7 @@ mod data_dir_json_tests {
     fn data_dir_multiple_valid_credentials_counted() {
         let file = write_provider_file(
             "two-real",
-            r#"{"openai": {"type": "api", "key": "sk-1"}, "anthropic": {"type": "api_key", "key": "sk-2"}, "stale": null}"#,
+            r#"{"openai": {"type": "api", "key": "sk-1"}, "anthropic": {"type": "api", "key": "sk-2"}, "stale": null}"#,
         );
         let result = probe_data_dir_json_at(&file, "Provider auth");
         let _ = std::fs::remove_dir_all(file.parent().unwrap());
@@ -1247,6 +1310,62 @@ mod data_dir_json_tests {
             }
             other => panic!("expected Valid with count, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn data_dir_rejects_pi_style_api_key_type() {
+        let file = write_provider_file(
+            "pi-style-rejected",
+            r#"{"anthropic": {"type": "api_key", "key": "sk-pi-style"}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(
+            result.is_none(),
+            "OpenCode probe must reject Pi-style 'api_key' (upstream OpenCode only knows 'api'); got {result:?}"
+        );
+    }
+
+    #[test]
+    fn data_dir_oauth_with_negative_expires_returns_none() {
+        let file = write_provider_file(
+            "oauth-neg-expires",
+            r#"{"x": {"type": "oauth", "access": "a", "refresh": "r", "expires": -1}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(
+            result.is_none(),
+            "negative expires must reject oauth (NonNegativeInt upstream); got {result:?}"
+        );
+    }
+
+    #[test]
+    fn data_dir_oauth_with_fractional_expires_returns_none() {
+        let file = write_provider_file(
+            "oauth-frac-expires",
+            r#"{"x": {"type": "oauth", "access": "a", "refresh": "r", "expires": 1.5}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(
+            result.is_none(),
+            "fractional expires must reject oauth (integer milliseconds upstream); got {result:?}"
+        );
+    }
+
+    #[test]
+    fn data_dir_oauth_with_zero_expires_returns_valid() {
+        let file = write_provider_file(
+            "oauth-zero-expires",
+            r#"{"x": {"type": "oauth", "access": "a", "refresh": "r", "expires": 0}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(
+            matches!(result, Some(AuthStatus::Valid { .. })),
+            "zero expires is non-negative integer; allowed (stale-but-typed token, refresh path will handle it)"
+        );
     }
 
     #[test]
@@ -1471,6 +1590,56 @@ mod provider_auth_file_tests {
             ),
             other => panic!("got {other:?}"),
         }
+    }
+
+    #[test]
+    fn pi_rejects_opencode_style_api_type() {
+        let dir = write_pi_auth(
+            "opencode-style-rejected",
+            r#"{"anthropic": {"type": "api", "key": "sk-opencode-style"}}"#,
+        );
+        let result = probe_provider_auth_file(Some(&dir), "auth.json", "Provider auth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "Pi probe must reject OpenCode-style 'api' (Pi uses 'api_key'); got {result:?}"
+        );
+    }
+
+    #[test]
+    fn pi_rejects_opencode_style_wellknown_type() {
+        let dir = write_pi_auth(
+            "opencode-wellknown-rejected",
+            r#"{"copilot": {"type": "wellknown", "key": "k", "token": "t"}}"#,
+        );
+        let result = probe_provider_auth_file(Some(&dir), "auth.json", "Provider auth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "Pi probe must reject OpenCode-specific 'wellknown' (not supported by Pi); got {result:?}"
+        );
+    }
+
+    #[test]
+    fn pi_oauth_with_negative_expires_returns_none() {
+        let dir = write_pi_auth(
+            "oauth-neg-expires",
+            r#"{"google": {"type": "oauth", "access": "a", "refresh": "r", "expires": -1}}"#,
+        );
+        let result = probe_provider_auth_file(Some(&dir), "auth.json", "Provider auth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn pi_oauth_with_fractional_expires_returns_none() {
+        let dir = write_pi_auth(
+            "oauth-frac-expires",
+            r#"{"google": {"type": "oauth", "access": "a", "refresh": "r", "expires": 12.5}}"#,
+        );
+        let result = probe_provider_auth_file(Some(&dir), "auth.json", "Provider auth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_none());
     }
 }
 
