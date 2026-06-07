@@ -226,6 +226,13 @@ fn non_empty_json_str(value: Option<&serde_json::Value>) -> Option<&str> {
     }
 }
 
+fn has_real_oauth_tokens(json: &serde_json::Value) -> Option<&str> {
+    let tokens = json.get("tokens").filter(|v| v.is_object())?;
+    let access = non_empty_json_str(tokens.get("access_token"))?;
+    let _refresh = non_empty_json_str(tokens.get("refresh_token"))?;
+    Some(access)
+}
+
 fn probe_codex_auth_file(
     config_dir: Option<&Path>,
     relative_path: &str,
@@ -242,18 +249,15 @@ fn probe_codex_auth_file(
     let content = std::fs::read_to_string(&file).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
 
-    if let Some(tokens_obj) = json.get("tokens").filter(|v| v.is_object()) {
-        let access = non_empty_json_str(tokens_obj.get("access_token"));
-        let refresh = non_empty_json_str(tokens_obj.get("refresh_token"));
-        if let (Some(access_token), Some(_)) = (access, refresh) {
-            return Some(token_to_auth_status(access_token, oauth_label));
-        }
-    }
-
-    if non_empty_json_str(json.get("OPENAI_API_KEY")).is_some() {
-        return Some(AuthStatus::Valid {
-            detail: api_key_label.to_string(),
-        });
+    if let Some(mode) = non_empty_json_str(json.get("auth_mode")) {
+        return probe_codex_explicit_mode(
+            mode,
+            &json,
+            oauth_label,
+            api_key_label,
+            pat_label,
+            agent_identity_label,
+        );
     }
 
     if let Some(label) = pat_label {
@@ -264,13 +268,50 @@ fn probe_codex_auth_file(
         }
     }
 
-    if let Some(label) = agent_identity_label {
-        if let Some(token) = non_empty_json_str(json.get("agent_identity")) {
-            return Some(token_to_auth_status(token, label));
-        }
+    if non_empty_json_str(json.get("OPENAI_API_KEY")).is_some() {
+        return Some(AuthStatus::Valid {
+            detail: api_key_label.to_string(),
+        });
+    }
+
+    if let Some(access) = has_real_oauth_tokens(&json) {
+        return Some(token_to_auth_status(access, oauth_label));
     }
 
     None
+}
+
+fn probe_codex_explicit_mode(
+    mode: &str,
+    json: &serde_json::Value,
+    oauth_label: &str,
+    api_key_label: &str,
+    pat_label: Option<&str>,
+    agent_identity_label: Option<&str>,
+) -> Option<AuthStatus> {
+    let normalized = mode.to_ascii_lowercase();
+    match normalized.as_str() {
+        "apikey" | "api_key" => {
+            non_empty_json_str(json.get("OPENAI_API_KEY")).map(|_| AuthStatus::Valid {
+                detail: api_key_label.to_string(),
+            })
+        }
+        "chatgpt" | "chatgptauthtokens" => {
+            has_real_oauth_tokens(json).map(|access| token_to_auth_status(access, oauth_label))
+        }
+        "personalaccesstoken" | "personal_access_token" => {
+            let label = pat_label?;
+            non_empty_json_str(json.get("personal_access_token")).map(|_| AuthStatus::Valid {
+                detail: label.to_string(),
+            })
+        }
+        "agentidentity" | "agent_identity" => {
+            let label = agent_identity_label?;
+            non_empty_json_str(json.get("agent_identity"))
+                .map(|token| token_to_auth_status(token, label))
+        }
+        _ => None,
+    }
 }
 
 fn probe_keychain(
@@ -606,19 +647,14 @@ mod codex_auth_file_tests {
     }
 
     #[test]
-    fn agent_identity_only_returns_agent_identity_valid() {
-        let (dir, f) = write_auth("ai", r#"{"agent_identity": "agent-jwt-token"}"#);
+    fn agent_identity_only_without_auth_mode_returns_none() {
+        let (dir, f) = write_auth("ai-no-mode", r#"{"agent_identity": "agent-jwt-token"}"#);
         let result = probe(&dir, &f);
         let _ = std::fs::remove_dir_all(&dir);
-        match result {
-            Some(AuthStatus::Valid { detail }) => {
-                assert!(
-                    detail.contains("Agent identity"),
-                    "Agent identity label expected: {detail}"
-                );
-            }
-            other => panic!("expected Valid Agent identity, got {other:?}"),
-        }
+        assert!(
+            result.is_none(),
+            "agent_identity alone (without explicit auth_mode) must NOT be reported as Valid; upstream Codex requires auth_mode = agentIdentity to activate. Got: {result:?}"
+        );
     }
 
     #[test]
@@ -630,9 +666,9 @@ mod codex_auth_file_tests {
     }
 
     #[test]
-    fn priority_tokens_wins_over_api_key() {
+    fn priority_api_key_wins_over_oauth_tokens_when_no_auth_mode() {
         let (dir, f) = write_auth(
-            "priority",
+            "no-mode-api-and-tokens",
             r#"{"OPENAI_API_KEY": "sk-test", "tokens": {"access_token": "a", "refresh_token": "r"}}"#,
         );
         let result = probe(&dir, &f);
@@ -640,12 +676,160 @@ mod codex_auth_file_tests {
         match result {
             Some(AuthStatus::Valid { detail }) => {
                 assert!(
-                    detail.contains("ChatGPT OAuth"),
-                    "OAuth must win over API key (Codex stores both during transitions): {detail}"
+                    detail.contains("OPENAI_API_KEY"),
+                    "no auth_mode + API key + tokens: API key wins per upstream AuthDotJson::resolved_mode fallback. Got: {detail}"
                 );
             }
-            other => panic!("expected OAuth Valid (priority), got {other:?}"),
+            other => panic!("expected API key Valid (no auth_mode fallback), got {other:?}"),
         }
+    }
+
+    #[test]
+    fn priority_pat_wins_over_api_key_when_no_auth_mode() {
+        let (dir, f) = write_auth(
+            "no-mode-pat-and-api",
+            r#"{"personal_access_token": "pat-1", "OPENAI_API_KEY": "sk-test"}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(
+                    detail.contains("Personal access token"),
+                    "no auth_mode + PAT + API key: PAT wins (more specific). Got: {detail}"
+                );
+            }
+            other => panic!("expected PAT Valid (no auth_mode fallback), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_auth_mode_with_only_oauth_tokens_reports_oauth() {
+        let (dir, f) = write_auth(
+            "tokens-only-no-mode",
+            r#"{"tokens": {"access_token": "a-real", "refresh_token": "r-real"}}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(
+                    detail.contains("ChatGPT OAuth"),
+                    "with no auth_mode and no PAT/API key, OAuth tokens are the last fallback. Got: {detail}"
+                );
+            }
+            other => panic!("expected OAuth (final fallback), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn explicit_auth_mode_apikey_with_key_returns_api_key_valid() {
+        let (dir, f) = write_auth(
+            "mode-apikey",
+            r#"{"auth_mode": "apikey", "OPENAI_API_KEY": "sk-real"}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(matches!(result, Some(AuthStatus::Valid { .. })));
+    }
+
+    #[test]
+    fn explicit_auth_mode_apikey_without_key_returns_none() {
+        let (dir, f) = write_auth(
+            "mode-apikey-no-key",
+            r#"{"auth_mode": "apikey", "tokens": {"access_token": "stale", "refresh_token": "stale"}}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "explicit auth_mode = apikey with missing OPENAI_API_KEY must NOT fall through to stale OAuth tokens: got {result:?}"
+        );
+    }
+
+    #[test]
+    fn explicit_auth_mode_chatgpt_with_full_tokens_returns_oauth() {
+        let (dir, f) = write_auth(
+            "mode-chatgpt",
+            r#"{"auth_mode": "chatgpt", "tokens": {"access_token": "a", "refresh_token": "r"}}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(matches!(result, Some(AuthStatus::Valid { .. })));
+    }
+
+    #[test]
+    fn explicit_auth_mode_chatgpt_without_tokens_returns_none() {
+        let (dir, f) = write_auth(
+            "mode-chatgpt-no-tokens",
+            r#"{"auth_mode": "chatgpt", "OPENAI_API_KEY": "stale-key"}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "explicit auth_mode = chatgpt with missing tokens must NOT fall through to stale API key: got {result:?}"
+        );
+    }
+
+    #[test]
+    fn explicit_auth_mode_personal_access_token_with_value_returns_pat() {
+        let (dir, f) = write_auth(
+            "mode-pat",
+            r#"{"auth_mode": "personalAccessToken", "personal_access_token": "pat-real"}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(detail.contains("Personal access token"));
+            }
+            other => panic!("expected Valid PAT, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn explicit_auth_mode_agent_identity_with_value_returns_agent_identity() {
+        let (dir, f) = write_auth(
+            "mode-ai",
+            r#"{"auth_mode": "agentIdentity", "agent_identity": "agent-jwt"}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(detail.contains("Agent identity"));
+            }
+            other => panic!("expected Valid agent identity, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn explicit_auth_mode_agent_identity_without_value_returns_none() {
+        let (dir, f) = write_auth(
+            "mode-ai-no-value",
+            r#"{"auth_mode": "agentIdentity", "OPENAI_API_KEY": "stale"}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "explicit auth_mode = agentIdentity with no agent_identity value must NOT fall back: got {result:?}"
+        );
+    }
+
+    #[test]
+    fn explicit_auth_mode_unknown_value_returns_none() {
+        let (dir, f) = write_auth(
+            "mode-unknown",
+            r#"{"auth_mode": "futureMode", "OPENAI_API_KEY": "sk-real"}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "unknown auth_mode must not silently fall through to a known field: got {result:?}"
+        );
     }
 
     #[test]
