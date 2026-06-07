@@ -73,6 +73,13 @@ pub enum AuthProbeRecord {
         file_name: String,
         label: String,
     },
+    CodexAuthFile {
+        relative_path: String,
+        oauth_label: String,
+        api_key_label: String,
+        personal_access_token_label: Option<String>,
+        agent_identity_label: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,6 +218,15 @@ enum AuthProbeManifest {
         #[serde(default)]
         keychain_service: Option<String>,
         label: String,
+    },
+    CodexAuthFile {
+        relative_path: String,
+        oauth_label: String,
+        api_key_label: String,
+        #[serde(default)]
+        personal_access_token_label: Option<String>,
+        #[serde(default)]
+        agent_identity_label: Option<String>,
     },
 }
 
@@ -488,6 +504,46 @@ fn convert_auth_probe(path_label: &str, probe: AuthProbeManifest) -> Result<Auth
                 marker_file,
                 keychain_service,
                 label,
+            })
+        }
+        AuthProbeManifest::CodexAuthFile {
+            relative_path,
+            oauth_label,
+            api_key_label,
+            personal_access_token_label,
+            agent_identity_label,
+        } => {
+            validate_relative_path(path_label, "auth_probes.relative_path", &relative_path)?;
+            ensure(
+                !oauth_label.is_empty(),
+                path_label,
+                "auth_probes.oauth_label",
+            )?;
+            ensure(
+                !api_key_label.is_empty(),
+                path_label,
+                "auth_probes.api_key_label",
+            )?;
+            if let Some(ref lbl) = personal_access_token_label {
+                ensure(
+                    !lbl.trim().is_empty(),
+                    path_label,
+                    "auth_probes.personal_access_token_label",
+                )?;
+            }
+            if let Some(ref lbl) = agent_identity_label {
+                ensure(
+                    !lbl.trim().is_empty(),
+                    path_label,
+                    "auth_probes.agent_identity_label",
+                )?;
+            }
+            Ok(AuthProbeRecord::CodexAuthFile {
+                relative_path,
+                oauth_label,
+                api_key_label,
+                personal_access_token_label,
+                agent_identity_label,
             })
         }
     }
