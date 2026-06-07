@@ -105,6 +105,45 @@ fn codex_manifest_parses_with_codex_config_seed_strategy() {
 }
 
 #[test]
+fn codex_manifest_separates_access_token_env_probe_from_api_key() {
+    let codex = parse_for("Codex CLI");
+
+    let env_probes: Vec<(Vec<String>, String)> = codex
+        .auth_probes
+        .iter()
+        .filter_map(|p| match p {
+            AuthProbeRecord::EnvKeys { vars, label } => Some((vars.clone(), label.clone())),
+            _ => None,
+        })
+        .collect();
+
+    let api_key_probe = env_probes
+        .iter()
+        .find(|(_, label)| label == "API key")
+        .expect("API key env probe present");
+    assert!(api_key_probe.0.contains(&"CODEX_API_KEY".to_string()));
+    assert!(api_key_probe.0.contains(&"OPENAI_API_KEY".to_string()));
+    assert!(
+        !api_key_probe.0.contains(&"CODEX_ACCESS_TOKEN".to_string()),
+        "CODEX_ACCESS_TOKEN must not be lumped under 'API key' (upstream codex loads it as agent identity / access bearer, not an API key)"
+    );
+
+    let access_token_probe = env_probes
+        .iter()
+        .find(|(vars, _)| vars.contains(&"CODEX_ACCESS_TOKEN".to_string()))
+        .expect("CODEX_ACCESS_TOKEN env probe present");
+    assert_eq!(
+        access_token_probe.1, "Access token",
+        "CODEX_ACCESS_TOKEN probe must use the distinct 'Access token' label (probe_env_keys appends '(VAR)' to match the API key formatting)"
+    );
+    assert_eq!(
+        access_token_probe.0,
+        vec!["CODEX_ACCESS_TOKEN".to_string()],
+        "Access token probe must contain ONLY CODEX_ACCESS_TOKEN (don't merge with other auth env vars)"
+    );
+}
+
+#[test]
 fn opencode_manifest_parses_with_provider_config_seed() {
     let opencode = parse_for("OpenCode");
     let injection = opencode.injection.expect("injection present");
