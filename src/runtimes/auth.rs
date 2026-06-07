@@ -106,11 +106,10 @@ fn probe_json_file(
 fn is_meaningful_json_value(v: &serde_json::Value) -> bool {
     use serde_json::Value;
     match v {
-        Value::Null => false,
+        Value::Null | Value::Number(_) | Value::Bool(_) => false,
         Value::String(s) => !s.trim().is_empty(),
         Value::Object(o) => o.values().any(is_meaningful_json_value),
         Value::Array(a) => a.iter().any(is_meaningful_json_value),
-        Value::Number(_) | Value::Bool(_) => true,
     }
 }
 
@@ -166,20 +165,25 @@ fn probe_nested_oauth(
 
 fn probe_data_dir_json(data_subdir: &str, file_name: &str, label: &str) -> Option<AuthStatus> {
     let file = resolve_data_file(data_subdir, file_name)?;
+    probe_data_dir_json_at(&file, label)
+}
+
+fn probe_data_dir_json_at(file: &Path, label: &str) -> Option<AuthStatus> {
     if !file.is_file() {
         return None;
     }
-
-    let content = std::fs::read_to_string(&file).ok()?;
+    let content = std::fs::read_to_string(file).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
-
-    if json.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+    let object = json.as_object()?;
+    let meaningful_count = object
+        .values()
+        .filter(|v| is_meaningful_json_value(v))
+        .count();
+    if meaningful_count == 0 {
         return None;
     }
-
-    let provider_count = json.as_object().map(|o| o.len()).unwrap_or(0);
     Some(AuthStatus::Valid {
-        detail: format!("{} ({} providers)", label, provider_count),
+        detail: format!("{} ({} providers)", label, meaningful_count),
     })
 }
 
@@ -435,6 +439,129 @@ mod json_file_tests {
             matches!(result, Some(AuthStatus::Valid { .. })),
             "no-existence-field probe must accept a meaningful value; got {result:?}"
         );
+    }
+
+    #[test]
+    fn json_file_with_bool_true_existence_field_returns_none() {
+        let (dir, file) = write_json("bool-true", r#"{"tokens": true}"#);
+        let result = probe_json_file(Some(&dir), &file, "tokens", "ChatGPT OAuth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "bool true is not a real OAuth token; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_with_number_existence_field_returns_none() {
+        let (dir, file) = write_json("number", r#"{"tokens": 0}"#);
+        let result = probe_json_file(Some(&dir), &file, "tokens", "ChatGPT OAuth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "number is not a real OAuth token; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_no_existence_field_with_only_bools_and_numbers_returns_none() {
+        let (dir, file) = write_json("scalars-only", r#"{"x": false, "y": 0}"#);
+        let result = probe_json_file(Some(&dir), &file, "", "Pi token");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "no-existence-field probe must not treat bool/number placeholders as auth; got {result:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod data_dir_json_tests {
+    use super::{probe_data_dir_json_at, AuthStatus};
+    use std::path::PathBuf;
+
+    fn write_provider_file(label: &str, body: &str) -> PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let dir = std::env::temp_dir().join(format!(
+            "hm-data-dir-json-{label}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("auth.json");
+        std::fs::write(&file, body).unwrap();
+        file
+    }
+
+    #[test]
+    fn data_dir_all_null_providers_returns_none() {
+        let file = write_provider_file(
+            "all-null",
+            r#"{"openai": null, "anthropic": null, "google": null}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(
+            result.is_none(),
+            "all-null provider entries must not report Valid; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn data_dir_one_real_among_nulls_counts_only_meaningful() {
+        let file = write_provider_file(
+            "mixed",
+            r#"{"openai": null, "anthropic": {"type": "api", "key": "real"}, "google": null}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(
+                    detail.contains("(1 providers)"),
+                    "expected '(1 providers)' counting only meaningful entries, got: {detail}"
+                );
+            }
+            other => panic!("expected Valid with count, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn data_dir_multiple_real_providers_counted() {
+        let file = write_provider_file(
+            "two-real",
+            r#"{"openai": {"key": "k1"}, "anthropic": {"key": "k2"}, "stale": null}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(
+                    detail.contains("(2 providers)"),
+                    "expected '(2 providers)' from 2 real and 1 null, got: {detail}"
+                );
+            }
+            other => panic!("expected Valid with count, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn data_dir_empty_object_returns_none() {
+        let file = write_provider_file("empty", "{}");
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn data_dir_non_object_returns_none() {
+        let file = write_provider_file("array", "[1, 2, 3]");
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(result.is_none());
     }
 }
 
