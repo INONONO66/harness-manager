@@ -31,14 +31,28 @@ pub struct ManifestHarnessSpec {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ManifestPackageSpec {
-    NpmGlobal { package: String },
+    NpmGlobal {
+        package: String,
+    },
     /// Like NpmGlobal but installs into the harness isolation home via
     /// `NPM_CONFIG_PREFIX`, so the binary never lands on the host PATH.
-    NpmIsolated { package: String },
-    NpxInstaller { package: String, args: Vec<String> },
-    BunxInstaller { package: String, args: Vec<String> },
-    PythonTool { package: String },
-    Manual { instructions: String },
+    NpmIsolated {
+        package: String,
+    },
+    NpxInstaller {
+        package: String,
+        args: Vec<String>,
+    },
+    BunxInstaller {
+        package: String,
+        args: Vec<String>,
+    },
+    PythonTool {
+        package: String,
+    },
+    Manual {
+        instructions: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]

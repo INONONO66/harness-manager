@@ -239,7 +239,8 @@ pub fn run_use(
     let binary = if let Some(override_path) = assembly.binary_override.as_ref() {
         override_path.clone()
     } else {
-        let binary_name_refs: Vec<&str> = assembly.binary_names.iter().map(String::as_str).collect();
+        let binary_name_refs: Vec<&str> =
+            assembly.binary_names.iter().map(String::as_str).collect();
         crate::runtimes::find_binary(&binary_name_refs).ok_or_else(|| {
             anyhow::anyhow!(
                 "{} is not installed (binary not found in PATH)",
