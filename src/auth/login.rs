@@ -7,9 +7,20 @@ use crate::runtimes::registry::RuntimeRegistry;
 
 pub fn run_auth_login(registry: &RuntimeRegistry, runtime: &str) -> anyhow::Result<()> {
     let Some(record) = registry.find(runtime) else {
-        println!("Auth login not supported for '{}'.", runtime);
-        println!("Check the runtime's documentation for authentication setup.");
-        return Ok(());
+        let known: Vec<String> = registry
+            .records()
+            .iter()
+            .filter_map(|r| r.binary_names.first().cloned())
+            .collect();
+        bail!(
+            "unknown runtime '{}'. Known runtimes: {}. Run `hm detect` for status.",
+            runtime,
+            if known.is_empty() {
+                "(none)".to_string()
+            } else {
+                known.join(", ")
+            }
+        );
     };
 
     match &record.auth_login {
@@ -29,9 +40,10 @@ pub fn run_auth_login(registry: &RuntimeRegistry, runtime: &str) -> anyhow::Resu
             Ok(())
         }
         AuthLoginRecord::Unsupported => {
-            println!("Auth login not supported for '{}'.", runtime);
-            println!("Check the runtime's documentation for authentication setup.");
-            Ok(())
+            bail!(
+                "auth login is not supported for runtime '{}'. Check the runtime's documentation for authentication setup.",
+                runtime
+            );
         }
     }
 }
@@ -56,5 +68,20 @@ mod tests {
             opencode.auth_login,
             AuthLoginRecord::Message { .. }
         ));
+    }
+
+    #[test]
+    fn unknown_runtime_returns_error_so_scripts_can_detect_failure() {
+        let registry = RuntimeRegistry::builtin_only().unwrap();
+        let err = run_auth_login(&registry, "no-such-runtime-xyz").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown runtime"),
+            "expected 'unknown runtime' in error, got: {msg}"
+        );
+        assert!(
+            msg.contains("no-such-runtime-xyz"),
+            "error must mention the bad name, got: {msg}"
+        );
     }
 }

@@ -58,17 +58,18 @@ pub fn apply_env_strategy(
                 spec.supported_providers.join(", ")
             );
         }
+        let bearer = gateway.bearer.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "gateway.bearer is required for env injection strategy (set [profiles.<name>.gateway].bearer)"
+            )
+        })?;
+        validate_bearer_value_at_runtime(bearer)?;
         let effective_strip = gateway
             .endpoint_strip_v1_override
             .unwrap_or(spec.endpoint_strip_v1);
         let endpoint = effective_endpoint(&gateway.base_url, effective_strip);
-        if let Some(bearer) = gateway.bearer.as_deref() {
-            validate_bearer_value_at_runtime(bearer)?;
-        }
         env.insert(spec.endpoint_env.clone(), endpoint);
-        if let Some(bearer) = gateway.bearer.as_deref() {
-            env.insert(spec.api_key_env.clone(), bearer.to_string());
-        }
+        env.insert(spec.api_key_env.clone(), bearer.to_string());
         return Ok(());
     }
 
@@ -753,6 +754,36 @@ mod tests {
         assert_eq!(
             env.get("OPENAI_API_KEY").map(String::as_str),
             Some("bearer-codex")
+        );
+    }
+
+    #[test]
+    fn env_strategy_rejects_gateway_without_bearer() {
+        let mut env: HashMap<String, String> = HashMap::new();
+        env.insert("ANTHROPIC_API_KEY".to_string(), "host-key".to_string());
+        env.insert("ANTHROPIC_BASE_URL".to_string(), "host-url".to_string());
+        let mut resolved = empty_profile("no-bearer");
+        resolved.gateway = Some(ResolvedGateway {
+            base_url: "https://gw.example/v1".to_string(),
+            bearer: None,
+            providers: vec!["anthropic".to_string()],
+            endpoint_strip_v1_override: None,
+            provider_headers: HashMap::new(),
+        });
+
+        let err = apply_env_strategy(&claude_env_injection(), &resolved, &mut env).unwrap_err();
+
+        assert!(
+            err.to_string().contains("gateway.bearer"),
+            "expected gateway.bearer required error: {err:#}"
+        );
+        assert!(
+            !env.contains_key("ANTHROPIC_API_KEY"),
+            "missing bearer must not yield an unauthenticated launch; api_key_env was already stripped"
+        );
+        assert!(
+            !env.contains_key("ANTHROPIC_BASE_URL"),
+            "endpoint must not be set without a bearer (no half-applied state)"
         );
     }
 

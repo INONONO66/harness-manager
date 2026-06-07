@@ -2,6 +2,7 @@ pub mod login;
 
 use crate::runtimes;
 use crate::runtimes::registry::RuntimeRegistry;
+use crate::secrets;
 use colored::Colorize;
 
 const ENV_VARS_TO_CHECK: &[&str] = &[
@@ -56,18 +57,34 @@ pub fn run_auth_status(registry: &RuntimeRegistry) -> anyhow::Result<()> {
     println!("{}", "-".repeat(50));
     for var in ENV_VARS_TO_CHECK {
         let status = match std::env::var(var) {
-            Ok(val) => {
-                let display = if val.len() > 12 {
-                    format!("{}...{}", &val[..4], &val[val.len() - 4..])
-                } else {
-                    val
-                };
-                format!("{} ({})", "set".green(), display)
-            }
+            Ok(val) => format!("{} ({})", "set".green(), secrets::mask_secret(&val)),
             Err(_) => "unset".dimmed().to_string(),
         };
         println!("  {:30} {}", var, status);
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::secrets::mask_secret;
+
+    #[test]
+    fn short_env_values_are_never_printed_in_full() {
+        let short = "abc123";
+        assert_eq!(mask_secret(short), "***");
+    }
+
+    #[test]
+    fn medium_env_values_show_only_four_char_prefix() {
+        let medium = "sk-ant-api-1234567";
+        let masked = mask_secret(medium);
+        assert!(masked.starts_with("sk-a"));
+        assert!(masked.ends_with("***"));
+        assert!(
+            !masked.contains("1234567"),
+            "trailing suffix must not leak: {masked}"
+        );
+    }
 }
