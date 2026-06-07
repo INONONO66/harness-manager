@@ -81,6 +81,20 @@ pub fn assemble_use_env(
         }
     };
 
+    // Ordering contract (do not reorder): config load + profile resolution
+    // MUST come before isolation setup. A config.toml parse failure, a
+    // missing secret file, or an unknown default_profile then fails closed
+    // without creating isolation directories, lock files, or seed files on
+    // disk. Note: apply_profile (and the per-strategy bearer/gateway
+    // validation it dispatches to) still runs AFTER iso_setup because it
+    // writes into the iso home. Those late-validation failures are a
+    // separate, smaller surface.
+    let hm_config = config::load_config()?;
+    let resolved_profile = match effective_profile_name(profile_name, &hm_config) {
+        Some(name) => Some(config::resolve_profile(&hm_config, Some(&name))?),
+        None => None,
+    };
+
     let iso_setup = if let Some(iso) = effective_isolation {
         let paths = isolation::IsolationPaths::try_from_spec(&iso)?;
         let lock = isolation::IsolationLockGuard::acquire(&paths)?;
@@ -101,10 +115,8 @@ pub fn assemble_use_env(
 
     let iso_paths = iso_setup.as_ref().map(|(_, paths, _)| paths.clone());
 
-    let hm_config = config::load_config()?;
-    let (profile_applied, seeded_path) = match effective_profile_name(profile_name, &hm_config) {
-        Some(name) => {
-            let resolved = config::resolve_profile(&hm_config, Some(&name))?;
+    let (profile_applied, seeded_path) = match resolved_profile {
+        Some(resolved) => {
             let seeded = apply_profile(&resolved, runtime, &mut env, iso_paths.as_ref())?;
             apply_proxy_env(&resolved, &mut env);
             (Some(resolved.name.clone()), seeded)
