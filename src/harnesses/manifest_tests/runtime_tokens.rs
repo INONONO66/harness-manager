@@ -16,7 +16,7 @@ fn manifest_allows_runtime_log_token_for_static_envs() {
 
     // Then: the harness keeps its own isolation root while recording the target runtime root.
     assert_eq!(parsed.isolation.subdir, "demo");
-    assert_eq!(parsed.isolation.runtime_subdir, "codex");
+    assert_eq!(parsed.isolation.runtime_subdir, "demo");
     assert!(parsed
         .isolation
         .static_envs
@@ -41,7 +41,7 @@ overwrite = false"#,
     let parsed = parse_toml("runtime-home.toml", &input).expect("runtime home token parses");
 
     // Then: runtime-owned env and seed paths are preserved for later token substitution.
-    assert_eq!(parsed.isolation.runtime_subdir, "codex");
+    assert_eq!(parsed.isolation.runtime_subdir, "demo");
     assert_eq!(
         parsed.isolation.static_envs,
         vec![(
@@ -56,7 +56,7 @@ overwrite = false"#,
 }
 
 #[test]
-fn bundled_codex_harnesses_share_runtime_home() {
+fn bundled_codex_harnesses_use_harness_local_runtime_home() {
     // Given: bundled manifests that target Codex.
     let specs = builtin_specs().expect("builtins parse");
     let codex_specs: Vec<_> = specs
@@ -64,32 +64,23 @@ fn bundled_codex_harnesses_share_runtime_home() {
         .filter(|spec| spec.target_runtime == "Codex CLI")
         .collect();
 
-    // When/Then: every Codex harness shares the runtime home and keeps overlay .codex absent.
+    // When/Then: every Codex harness owns its runtime home so setup state cannot leak.
     assert!(!codex_specs.is_empty(), "expected bundled Codex harnesses");
     for spec in codex_specs {
-        assert_eq!(spec.isolation.runtime_subdir, "codex");
-        assert!(
-            !spec
-                .isolation
-                .home_subdirs
-                .iter()
-                .any(|subdir| subdir == ".codex"),
-            "{} must not pre-create a harness-local .codex directory",
-            spec.id
-        );
+        assert_eq!(spec.isolation.runtime_subdir, spec.isolation.subdir);
         assert!(
             spec.isolation
                 .static_envs
                 .iter()
-                .any(|(key, value)| key == "CODEX_HOME" && value == "{runtime_home}/.codex"),
-            "{} must point CODEX_HOME at the shared Codex runtime home",
+                .any(|(key, value)| key == "CODEX_HOME" && value == "{home}/.codex"),
+            "{} must point CODEX_HOME at the harness-local Codex home",
             spec.id
         );
     }
 }
 
 #[test]
-fn bundled_opencode_harnesses_share_runtime_home() {
+fn bundled_opencode_harnesses_use_harness_local_runtime_home() {
     // Given: bundled manifests that target OpenCode.
     let specs = builtin_specs().expect("builtins parse");
     let opencode_specs: Vec<_> = specs
@@ -97,12 +88,13 @@ fn bundled_opencode_harnesses_share_runtime_home() {
         .filter(|spec| spec.target_runtime == "OpenCode")
         .collect();
 
-    // When/Then: every OpenCode harness uses runtime XDG roots and avoids overlay OpenCode state.
+    // When/Then: every OpenCode harness owns its OpenCode config/data/cache roots.
     assert!(
         !opencode_specs.is_empty(),
         "expected bundled OpenCode harnesses"
     );
     for spec in opencode_specs {
+        assert_eq!(spec.isolation.runtime_subdir, spec.isolation.subdir);
         let envs: BTreeMap<_, _> = spec.isolation.static_envs.iter().cloned().collect();
         assert_eq!(spec.detect_binaries, vec!["opencode"]);
         assert_eq!(spec.launch_binary.as_deref(), Some("opencode"));
@@ -117,30 +109,30 @@ fn bundled_opencode_harnesses_share_runtime_home() {
         );
         assert_eq!(
             envs.get("XDG_CONFIG_HOME").map(String::as_str),
-            Some("{runtime_home}/.config")
+            Some("{home}/.config")
         );
         assert_eq!(
             envs.get("XDG_DATA_HOME").map(String::as_str),
-            Some("{runtime_home}/.local/share")
+            Some("{home}/.local/share")
         );
         assert_eq!(
             envs.get("XDG_CACHE_HOME").map(String::as_str),
-            Some("{runtime_home}/.cache")
+            Some("{home}/.cache")
         );
         assert_eq!(
             envs.get("XDG_STATE_HOME").map(String::as_str),
-            Some("{runtime_home}/.local/state")
+            Some("{home}/.local/state")
         );
         assert_eq!(
             envs.get("OPENCODE_CONFIG_DIR").map(String::as_str),
-            Some("{runtime_home}/.config/opencode")
+            Some("{home}/.config/opencode")
         );
         assert!(!envs.contains_key("OPENCODE_PURE"));
     }
 }
 
 #[test]
-fn bundled_claude_harnesses_share_runtime_home() {
+fn bundled_claude_harnesses_use_harness_local_runtime_home() {
     // Given: bundled manifests that target Claude.
     let specs = builtin_specs().expect("builtins parse");
     let claude_specs: Vec<_> = specs
@@ -148,33 +140,24 @@ fn bundled_claude_harnesses_share_runtime_home() {
         .filter(|spec| spec.target_runtime == "Claude Code")
         .collect();
 
-    // When/Then: every Claude harness inherits runtime config/plugin state.
+    // When/Then: every Claude harness owns its Claude config/plugin state.
     assert!(
         !claude_specs.is_empty(),
         "expected bundled Claude harnesses"
     );
     for spec in claude_specs {
         let envs: BTreeMap<_, _> = spec.isolation.static_envs.iter().cloned().collect();
-        assert_eq!(spec.isolation.runtime_subdir, "claude");
-        assert!(
-            !spec
-                .isolation
-                .home_subdirs
-                .iter()
-                .any(|subdir| subdir.starts_with(".claude")),
-            "{} must not pre-create harness-local Claude state directories",
-            spec.id
-        );
+        assert_eq!(spec.isolation.runtime_subdir, spec.isolation.subdir);
         assert_eq!(
             envs.get("CLAUDE_CONFIG_DIR").map(String::as_str),
-            Some("{runtime_home}/.claude")
+            Some("{home}/.claude")
         );
         assert!(
             spec.isolation
                 .seed_files
                 .iter()
-                .any(|seed| seed.path == "{runtime_home}/.claude/settings.json"),
-            "{} must seed shared Claude runtime settings",
+                .any(|seed| seed.path == "{home}/.claude/settings.json"),
+            "{} must seed harness-local Claude settings",
             spec.id
         );
     }

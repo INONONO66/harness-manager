@@ -18,7 +18,7 @@ fn parses_minimal_manifest_into_owned_spec() {
     assert_eq!(parsed.launch_binary, None);
     assert!(parsed.launch_args.is_empty());
     assert_eq!(parsed.isolation.subdir, "demo");
-    assert_eq!(parsed.isolation.runtime_subdir, "codex");
+    assert_eq!(parsed.isolation.runtime_subdir, "demo");
     assert_eq!(parsed.isolation.home_subdirs, vec![".codex"]);
     assert_eq!(
         parsed.isolation.static_envs,

@@ -16,13 +16,13 @@ home_subdirs = [".omx"]
 caveat = "omx harness: Codex CLI with oh-my-codex. Run `omx setup` after first launch if needed."
 
 [isolation.static_envs]
-CODEX_HOME = "{runtime_home}/.codex"
+CODEX_HOME = "{home}/.codex"
 OMX_ROOT = "{home}/.omx"
 OMX_STATE_ROOT = "{state}/omx"
 OMX_TEAM_STATE_ROOT = "{state}/omx-team"
 
 [[isolation.seed_files]]
-path = "{runtime_home}/.codex/config.toml"
+path = "{home}/.codex/config.toml"
 content = '''
 analytics_enabled = false
 check_for_update_on_startup = false

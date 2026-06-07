@@ -11,11 +11,13 @@ use crate::isolation::{self, IsolationLockGuard, IsolationPaths};
 
 fn apply_isolation_env(
     cmd: &mut Command,
+    target_runtime: &str,
     iso: &(impl IsolationRecipe + ?Sized),
     paths: &IsolationPaths,
 ) -> anyhow::Result<()> {
     isolation::ensure_isolation_tree(iso, paths)?;
     isolation::seed_files(iso, paths)?;
+    isolation::link_main_runtime_databases(target_runtime, paths)?;
     let inherited: std::collections::HashMap<String, String> = std::env::vars().collect();
     let env = isolation::build_sanitized_isolation_env(&inherited, iso, paths);
     cmd.env_clear();
@@ -122,7 +124,7 @@ pub fn install(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
 
     let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
     let _lock = IsolationLockGuard::acquire(&paths)?;
-    apply_isolation_env(&mut cmd, &spec.isolation, &paths)?;
+    apply_isolation_env(&mut cmd, &spec.target_runtime, &spec.isolation, &paths)?;
     apply_npm_isolated_env(&mut cmd, &spec.package, &paths);
     run_cmd(cmd, "install", id)?;
 
@@ -151,7 +153,7 @@ pub fn update(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
 
     let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
     let _lock = IsolationLockGuard::acquire(&paths)?;
-    apply_isolation_env(&mut cmd, &spec.isolation, &paths)?;
+    apply_isolation_env(&mut cmd, &spec.target_runtime, &spec.isolation, &paths)?;
     apply_npm_isolated_env(&mut cmd, &spec.package, &paths);
     run_cmd(cmd, "update", id)?;
 
@@ -178,7 +180,7 @@ pub fn remove(registry: &HarnessRegistry, id: &str, purge: bool) -> anyhow::Resu
     if let Some(cmd) = build_uninstall_cmd(&spec.package) {
         // Best-effort uninstall — don't fail if the package wasn't installed
         let mut cmd = cmd;
-        apply_isolation_env(&mut cmd, &spec.isolation, &paths)?;
+        apply_isolation_env(&mut cmd, &spec.target_runtime, &spec.isolation, &paths)?;
         apply_npm_isolated_env(&mut cmd, &spec.package, &paths);
         let _ = run_cmd(cmd, "uninstall", id);
     }

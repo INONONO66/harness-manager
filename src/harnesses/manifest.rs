@@ -185,13 +185,7 @@ fn convert_manifest(
     validate_args(path_label, "launch_args", &manifest.launch_args)?;
 
     let package = convert_package(path_label, manifest.package)?;
-    let isolation = convert_isolation(
-        path_label,
-        &manifest.id,
-        &target_runtime,
-        manifest.isolation,
-        runtimes,
-    )?;
+    let isolation = convert_isolation(path_label, &manifest.id, manifest.isolation)?;
 
     Ok(ManifestHarnessSpec {
         id: manifest.id,
@@ -244,12 +238,10 @@ fn convert_package(path_label: &str, package: PackageManifest) -> Result<Manifes
 fn convert_isolation(
     path_label: &str,
     id: &str,
-    target_runtime: &str,
     isolation: IsolationManifest,
-    runtimes: &RuntimeRegistry,
 ) -> Result<IsolationPlan> {
     let subdir = isolation.subdir.unwrap_or_else(|| id.to_string());
-    let runtime_subdir = runtimes.target_runtime_subdir(target_runtime);
+    let runtime_subdir = subdir.clone();
     validate_relative_path(path_label, "isolation.subdir", &subdir)?;
     for subdir in &isolation.home_subdirs {
         validate_relative_path(path_label, "isolation.home_subdirs", subdir)?;

@@ -15,10 +15,14 @@ use std::os::unix::fs::PermissionsExt;
 
 use spec::IsolationRecipe;
 
+mod db_links;
 mod env;
 mod paths;
 pub mod spec;
 
+pub use db_links::link_main_runtime_databases;
+#[cfg(test)]
+pub(crate) use db_links::link_main_runtime_databases_from_home;
 #[cfg(test)]
 pub use env::build_isolation_env;
 pub use env::{build_sanitized_isolation_env, GLOBAL_AI_STRIP};

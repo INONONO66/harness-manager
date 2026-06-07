@@ -15,9 +15,9 @@ home_subdirs = []
 caveat = "omc harness: Claude Code with oh-my-claudecode plugin. Install omc first: hm harness install omc"
 
 [isolation.static_envs]
-CLAUDE_CONFIG_DIR = "{runtime_home}/.claude"
+CLAUDE_CONFIG_DIR = "{home}/.claude"
 CLAUDE_CODE_TMPDIR = "{tmp}"
-CLAUDE_CODE_DEBUG_LOGS_DIR = "{runtime_logs}"
+CLAUDE_CODE_DEBUG_LOGS_DIR = "{state}/logs"
 DISABLE_UPDATES = "1"
 DISABLE_AUTOUPDATER = "1"
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"
@@ -25,7 +25,7 @@ ENABLE_CLAUDEAI_MCP_SERVERS = "false"
 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1"
 
 [[isolation.seed_files]]
-path = "{runtime_home}/.claude/settings.json"
+path = "{home}/.claude/settings.json"
 content = '''
 {
   "permissions": { "defaultMode": "ask" },

@@ -137,7 +137,7 @@ package = "my-harness-package"
 [isolation]
 spoof_home = true
 home_subdirs = []
-static_envs = { CODEX_HOME = "{runtime_home}/.codex" }
+static_envs = { CODEX_HOME = "{home}/.codex" }
 ```
 
 Then run:
@@ -160,8 +160,9 @@ Full schema and plugin packaging guidance: [docs/harness-manifest.md](docs/harne
 - Launch binaries must be executable names, not paths or shell snippets.
 - Package install strategies are structured: `npm-global`, `npm-isolated`, `npx-installer`, `bunx-installer`, `python-tool`, or `manual`. The `npm-isolated` kind installs into the harness isolation home (`$XDG_DATA_HOME/hm/runtimes/<id>/home/.npm`) via `NPM_CONFIG_PREFIX` so the package's binaries never appear on the host `PATH`; `hm use <harness>` adds the isolated `.npm/bin` to the launch `PATH` and exec's the binary directly. Use this for harnesses whose CLI you want gated behind `hm use`.
 - Static env keys cannot be host secrets such as `*_TOKEN`, `*_SECRET`, or `*_API_KEY`.
-- Seed files must live under `{home}/`, `{runtime_home}/`, `{state}/`, or `{tmp}/`; static envs may also use `{runtime_home}`, `{runtime_state}`, and `{runtime_logs}` for target-runtime shared state/log paths. Harness-specific plugin state belongs under `{home}` or `{state}`; runtime session DBs, auth, MCP config, and runtime plugins should point at `{runtime_home}`.
-- Side-effecting operations take a per-target-runtime lock under `$XDG_DATA_HOME/hm/runtimes/.locks`.
+- Seed files must live under `{home}/`, `{runtime_home}/`, `{state}/`, or `{tmp}/`; for harnesses, `{runtime_home}` resolves to the harness runtime root so runtime session DBs, auth, MCP config, plugins, hooks, prompts, and trust state stay isolated per harness.
+- hm links known runtime database files back to the user's main runtime DBs: Codex `*.sqlite*` under `~/.codex`, and OpenCode `*.db*` under `~/.local/share/opencode`. Harness config/auth/plugin files stay isolated, while conversation/log/memory DBs stay shared.
+- Side-effecting operations take a per-harness runtime lock under `$XDG_DATA_HOME/hm/runtimes/.locks`.
 
 ## Profiles And Proxy Gateway
 

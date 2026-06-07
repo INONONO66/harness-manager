@@ -1,6 +1,7 @@
 use super::spec::{IsolationPlan, SeedFilePlan};
 use super::IsolationPaths;
 
+mod database_tests;
 mod env_tests;
 mod lock_tests;
 mod path_tests;
