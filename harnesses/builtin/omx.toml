@@ -6,7 +6,7 @@ detect_binaries = ["omx"]
 launch_binary = "omx"
 
 [package]
-kind = "npm-global"
+kind = "npm-isolated"
 package = "oh-my-codex"
 
 [isolation]

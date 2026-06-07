@@ -8,6 +8,7 @@ use colored::Colorize;
 
 use crate::config::{self, ResolvedProfile};
 use crate::harnesses::registry::HarnessRegistry;
+use crate::harnesses::types::PackageSpec;
 use crate::isolation;
 use crate::isolation::spec::IsolationRecipe;
 use crate::runtimes::manifest::RuntimeRecord;
@@ -26,6 +27,7 @@ pub struct UseEnvAssembly {
     pub launch_args: Vec<String>,
     pub profile_applied: bool,
     pub isolation_present: bool,
+    pub binary_override: Option<PathBuf>,
 }
 
 pub fn assemble_use_env(
@@ -37,6 +39,12 @@ pub fn assemble_use_env(
     inherited: HashMap<String, String>,
 ) -> anyhow::Result<UseEnvAssembly> {
     let target = resolve_target(target_name, runtimes, harnesses)?;
+
+    let npm_isolated_harness = matches!(
+        &target,
+        LaunchTarget::Harness { harness, .. }
+            if matches!(&harness.package, PackageSpec::NpmIsolated { .. })
+    );
 
     let (runtime, effective_isolation, binary_names, display_name, launch_args) = match &target {
         LaunchTarget::Runtime(rt) => {
@@ -98,6 +106,32 @@ pub fn assemble_use_env(
         (None, None)
     };
 
+    let binary_override = if npm_isolated_harness {
+        if let Some(paths) = iso_paths.as_ref() {
+            let bin_dir = paths.home.join(".npm").join("bin");
+            let bin_dir_str = bin_dir.to_string_lossy().to_string();
+            let current_path = env.get("PATH").cloned().unwrap_or_default();
+            let new_path = if current_path.is_empty() {
+                bin_dir_str.clone()
+            } else {
+                format!("{}:{}", bin_dir_str, current_path)
+            };
+            env.insert("PATH".to_string(), new_path);
+            binary_names.first().and_then(|first_bin| {
+                let candidate = bin_dir.join(first_bin);
+                if candidate.exists() {
+                    Some(candidate)
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     Ok(UseEnvAssembly {
         env,
         binary_names,
@@ -106,6 +140,7 @@ pub fn assemble_use_env(
         launch_args,
         profile_applied: profile_applied.is_some(),
         isolation_present: iso_setup.is_some(),
+        binary_override,
     })
 }
 
@@ -201,13 +236,17 @@ pub fn run_use(
         return Ok(());
     }
 
-    let binary_name_refs: Vec<&str> = assembly.binary_names.iter().map(String::as_str).collect();
-    let binary = crate::runtimes::find_binary(&binary_name_refs).ok_or_else(|| {
-        anyhow::anyhow!(
-            "{} is not installed (binary not found in PATH)",
-            assembly.display_name
-        )
-    })?;
+    let binary = if let Some(override_path) = assembly.binary_override.as_ref() {
+        override_path.clone()
+    } else {
+        let binary_name_refs: Vec<&str> = assembly.binary_names.iter().map(String::as_str).collect();
+        crate::runtimes::find_binary(&binary_name_refs).ok_or_else(|| {
+            anyhow::anyhow!(
+                "{} is not installed (binary not found in PATH)",
+                assembly.display_name
+            )
+        })?
+    };
 
     let mut cmd = Command::new(&binary);
     cmd.args(&assembly.launch_args);

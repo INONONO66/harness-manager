@@ -23,6 +23,7 @@ fn builtin_manifests_have_usable_package_strategies() {
     // When: package strategies are inspected.
     let all_strategies_have_payload = specs.iter().all(|spec| match &spec.package {
         ManifestPackageSpec::NpmGlobal { package }
+        | ManifestPackageSpec::NpmIsolated { package }
         | ManifestPackageSpec::PythonTool { package } => !package.is_empty(),
         ManifestPackageSpec::NpxInstaller { package, args }
         | ManifestPackageSpec::BunxInstaller { package, args } => {

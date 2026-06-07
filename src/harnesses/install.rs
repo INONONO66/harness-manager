@@ -25,6 +25,44 @@ fn apply_isolation_env(
     Ok(())
 }
 
+pub(super) fn apply_npm_isolated_env(
+    cmd: &mut Command,
+    spec: &PackageSpec,
+    paths: &IsolationPaths,
+) {
+    if let PackageSpec::NpmIsolated { .. } = spec {
+        let prefix = paths.home.join(".npm");
+        let cache = paths.state.join("npm-cache");
+        cmd.env("NPM_CONFIG_PREFIX", &prefix);
+        cmd.env("NPM_CONFIG_CACHE", &cache);
+        strip_shim_dirs_from_cmd_path(cmd);
+    }
+}
+
+/// Strip mise/asdf shim directories from the command's PATH.
+///
+/// Required because spoofed HOME breaks mise/asdf trust DB lookup, so any
+/// `npm` invocation routed through a shim wrapper fails. Removing shims
+/// forces resolution to the next PATH entry (typically Homebrew's npm),
+/// which is a real binary and ignores the spoofed HOME for trust state.
+fn strip_shim_dirs_from_cmd_path(cmd: &mut Command) {
+    let path_val: Option<String> = cmd.get_envs().find_map(|(k, v)| {
+        if k == "PATH" {
+            v.map(|val| val.to_string_lossy().to_string())
+        } else {
+            None
+        }
+    });
+    let Some(path) = path_val else {
+        return;
+    };
+    let filtered: Vec<&str> = path
+        .split(':')
+        .filter(|dir| !dir.contains("mise/shims") && !dir.contains("asdf/shims"))
+        .collect();
+    cmd.env("PATH", filtered.join(":"));
+}
+
 fn run_cmd(mut cmd: Command, action: &str, id: &str) -> anyhow::Result<()> {
     let status = cmd
         .status()
@@ -85,6 +123,7 @@ pub fn install(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
     let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
     let _lock = IsolationLockGuard::acquire(&paths)?;
     apply_isolation_env(&mut cmd, &spec.isolation, &paths)?;
+    apply_npm_isolated_env(&mut cmd, &spec.package, &paths);
     run_cmd(cmd, "install", id)?;
 
     eprintln!(
@@ -113,6 +152,7 @@ pub fn update(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
     let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
     let _lock = IsolationLockGuard::acquire(&paths)?;
     apply_isolation_env(&mut cmd, &spec.isolation, &paths)?;
+    apply_npm_isolated_env(&mut cmd, &spec.package, &paths);
     run_cmd(cmd, "update", id)?;
 
     eprintln!(
@@ -139,6 +179,7 @@ pub fn remove(registry: &HarnessRegistry, id: &str, purge: bool) -> anyhow::Resu
         // Best-effort uninstall — don't fail if the package wasn't installed
         let mut cmd = cmd;
         apply_isolation_env(&mut cmd, &spec.isolation, &paths)?;
+        apply_npm_isolated_env(&mut cmd, &spec.package, &paths);
         let _ = run_cmd(cmd, "uninstall", id);
     }
 

@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use super::{apply_isolation_env, install};
+use super::{apply_isolation_env, apply_npm_isolated_env, install};
 use crate::harnesses::package::{build_install_cmd, build_uninstall_cmd, build_update_cmd};
 use crate::harnesses::registry::{HarnessRegistry, HarnessSource};
 use crate::harnesses::types::PackageSpec;
@@ -177,6 +177,95 @@ fn apply_isolation_env_strips_hostile_vars() {
     assert!(
         envs.iter().all(|(k, _)| k != "ANTHROPIC_API_KEY"),
         "expected ANTHROPIC_API_KEY to be absent: {:?}",
+        envs
+    );
+}
+
+#[test]
+fn build_install_npm_isolated_uses_npm_install_g() {
+    let spec = PackageSpec::NpmIsolated {
+        package: "demo-package".to_string(),
+    };
+    let cmd = build_install_cmd(&spec).unwrap();
+    let args = cmd_to_args(&cmd);
+    assert_eq!(args, vec!["npm", "install", "-g", "demo-package"]);
+}
+
+#[test]
+fn build_uninstall_npm_isolated_uses_npm_uninstall_g() {
+    let spec = PackageSpec::NpmIsolated {
+        package: "demo-package".to_string(),
+    };
+    let cmd = build_uninstall_cmd(&spec).unwrap();
+    let args = cmd_to_args(&cmd);
+    assert_eq!(args, vec!["npm", "uninstall", "-g", "demo-package"]);
+}
+
+#[test]
+fn apply_npm_isolated_env_sets_prefix_and_cache_under_isolation() {
+    let mut cmd = Command::new("dummy");
+    let registry = plugin_registry();
+    let spec = registry.find("install-plugin").unwrap();
+    let paths = crate::isolation::IsolationPaths::try_from_spec(&spec.isolation).unwrap();
+
+    apply_isolation_env(&mut cmd, &spec.isolation, &paths).unwrap();
+
+    let isolated = PackageSpec::NpmIsolated {
+        package: "demo".to_string(),
+    };
+    apply_npm_isolated_env(&mut cmd, &isolated, &paths);
+
+    let envs: Vec<(String, Option<String>)> = cmd
+        .get_envs()
+        .map(|(k, v)| {
+            (
+                k.to_string_lossy().to_string(),
+                v.map(|val| val.to_string_lossy().to_string()),
+            )
+        })
+        .collect();
+
+    assert!(
+        envs.iter().any(|(k, v)| k == "NPM_CONFIG_PREFIX"
+            && v.as_ref()
+                .is_some_and(|val| val.ends_with("/runtimes/install-plugin/home/.npm"))),
+        "expected NPM_CONFIG_PREFIX under isolation home: {:?}",
+        envs
+    );
+    assert!(
+        envs.iter().any(|(k, v)| k == "NPM_CONFIG_CACHE"
+            && v.as_ref()
+                .is_some_and(|val| val.ends_with("/runtimes/install-plugin/state/npm-cache"))),
+        "expected NPM_CONFIG_CACHE under isolation state: {:?}",
+        envs
+    );
+}
+
+#[test]
+fn apply_npm_isolated_env_is_no_op_for_npm_global() {
+    let mut cmd = Command::new("dummy");
+    let registry = plugin_registry();
+    let spec = registry.find("install-plugin").unwrap();
+    let paths = crate::isolation::IsolationPaths::try_from_spec(&spec.isolation).unwrap();
+
+    let global = PackageSpec::NpmGlobal {
+        package: "demo".to_string(),
+    };
+    apply_npm_isolated_env(&mut cmd, &global, &paths);
+
+    let envs: Vec<String> = cmd
+        .get_envs()
+        .map(|(k, _)| k.to_string_lossy().to_string())
+        .collect();
+
+    assert!(
+        !envs.iter().any(|k| k == "NPM_CONFIG_PREFIX"),
+        "expected no NPM_CONFIG_PREFIX for NpmGlobal: {:?}",
+        envs
+    );
+    assert!(
+        !envs.iter().any(|k| k == "NPM_CONFIG_CACHE"),
+        "expected no NPM_CONFIG_CACHE for NpmGlobal: {:?}",
         envs
     );
 }

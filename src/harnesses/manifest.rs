@@ -32,6 +32,9 @@ pub struct ManifestHarnessSpec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ManifestPackageSpec {
     NpmGlobal { package: String },
+    /// Like NpmGlobal but installs into the harness isolation home via
+    /// `NPM_CONFIG_PREFIX`, so the binary never lands on the host PATH.
+    NpmIsolated { package: String },
     NpxInstaller { package: String, args: Vec<String> },
     BunxInstaller { package: String, args: Vec<String> },
     PythonTool { package: String },
@@ -61,6 +64,8 @@ struct HarnessManifest {
 enum PackageManifest {
     #[serde(rename = "npm-global")]
     NpmGlobal { package: String },
+    #[serde(rename = "npm-isolated")]
+    NpmIsolated { package: String },
     #[serde(rename = "npx-installer")]
     NpxInstaller {
         package: String,
@@ -192,6 +197,10 @@ fn convert_package(path_label: &str, package: PackageManifest) -> Result<Manifes
         PackageManifest::NpmGlobal { package } => {
             validate_package_name(path_label, "package.package", &package)?;
             ManifestPackageSpec::NpmGlobal { package }
+        }
+        PackageManifest::NpmIsolated { package } => {
+            validate_package_name(path_label, "package.package", &package)?;
+            ManifestPackageSpec::NpmIsolated { package }
         }
         PackageManifest::NpxInstaller { package, args } => {
             validate_package_name(path_label, "package.package", &package)?;

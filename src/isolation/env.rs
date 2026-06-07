@@ -85,6 +85,13 @@ pub fn build_sanitized_isolation_env(
     for var in GLOBAL_AI_STRIP {
         out.remove(*var);
     }
+    if let Some(path) = out.get("PATH").cloned() {
+        let filtered: Vec<&str> = path
+            .split(':')
+            .filter(|dir| !dir.contains("mise/shims") && !dir.contains("asdf/shims"))
+            .collect();
+        out.insert("PATH".to_string(), filtered.join(":"));
+    }
     for (k, v) in build_isolation_env(spec, paths) {
         out.insert(k, v);
     }

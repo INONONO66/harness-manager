@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, Color, Table};
 
 use super::registry::HarnessRegistry;
-use super::types::HarnessSpec;
+use super::types::{HarnessSpec, PackageSpec};
+use crate::isolation::IsolationPaths;
 
 #[derive(Debug)]
 pub struct DetectedHarness {
@@ -17,7 +18,11 @@ pub struct DetectedHarness {
 
 pub fn detect_one(spec: &HarnessSpec) -> DetectedHarness {
     let binary_names: Vec<&str> = spec.detect_binaries.iter().map(String::as_str).collect();
-    let binary = crate::runtimes::find_binary(&binary_names);
+    let binary = if matches!(&spec.package, PackageSpec::NpmIsolated { .. }) {
+        detect_in_isolation_home(spec).or_else(|| crate::runtimes::find_binary(&binary_names))
+    } else {
+        crate::runtimes::find_binary(&binary_names)
+    };
     DetectedHarness {
         id: spec.id.clone(),
         aliases: spec.aliases.clone(),
@@ -26,6 +31,19 @@ pub fn detect_one(spec: &HarnessSpec) -> DetectedHarness {
         installed: binary.is_some(),
         binary_path: binary,
     }
+}
+
+fn detect_in_isolation_home(spec: &HarnessSpec) -> Option<PathBuf> {
+    let paths = IsolationPaths::try_from_spec(&spec.isolation).ok()?;
+    let iso_bin = paths.home.join(".npm").join("bin");
+    spec.detect_binaries.iter().find_map(|name| {
+        let candidate = iso_bin.join(name);
+        if candidate.exists() {
+            Some(candidate)
+        } else {
+            None
+        }
+    })
 }
 
 pub fn detect_all(registry: &HarnessRegistry) -> Vec<DetectedHarness> {

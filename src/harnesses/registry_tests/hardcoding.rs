@@ -18,6 +18,7 @@ fn rust_sources_under(dir: &Path, out: &mut Vec<PathBuf>) {
 fn package_name(package: &ManifestPackageSpec) -> Option<&str> {
     match package {
         ManifestPackageSpec::NpmGlobal { package }
+        | ManifestPackageSpec::NpmIsolated { package }
         | ManifestPackageSpec::NpxInstaller { package, .. }
         | ManifestPackageSpec::BunxInstaller { package, .. }
         | ManifestPackageSpec::PythonTool { package } => Some(package),
