@@ -10,10 +10,9 @@ env = "PI_CODING_AGENT_DIR"
 home_relative = ".pi/agent"
 
 [[auth_probes]]
-kind = "json-file"
+kind = "provider-auth-file"
 relative_path = "auth.json"
-existence_field = ""
-label = "Auth token"
+label = "Provider auth"
 
 [auth_login]
 kind = "unsupported"
