@@ -81,11 +81,14 @@ pub fn assemble_use_env(
         }
     };
 
-    // Ordering contract (do not reorder): profile resolution MUST come
-    // before isolation setup. A broken ~/.config/hm/config.toml (parse
-    // failure, missing secret file, unknown profile name, etc.) then
-    // fails closed without creating isolation directories, lock files,
-    // or seed files on disk.
+    // Ordering contract (do not reorder): config load + profile resolution
+    // MUST come before isolation setup. A config.toml parse failure, a
+    // missing secret file, or an unknown default_profile then fails closed
+    // without creating isolation directories, lock files, or seed files on
+    // disk. Note: apply_profile (and the per-strategy bearer/gateway
+    // validation it dispatches to) still runs AFTER iso_setup because it
+    // writes into the iso home. Those late-validation failures are a
+    // separate, smaller surface.
     let hm_config = config::load_config()?;
     let resolved_profile = match effective_profile_name(profile_name, &hm_config) {
         Some(name) => Some(config::resolve_profile(&hm_config, Some(&name))?),
