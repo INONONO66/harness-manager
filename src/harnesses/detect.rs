@@ -14,6 +14,8 @@ pub struct DetectedHarness {
     pub target_runtime: String,
     pub installed: bool,
     pub binary_path: Option<PathBuf>,
+    pub package_source: String,
+    pub wraps_target_runtime_binary: bool,
 }
 
 pub fn detect_one(spec: &HarnessSpec) -> DetectedHarness {
@@ -30,6 +32,22 @@ pub fn detect_one(spec: &HarnessSpec) -> DetectedHarness {
         target_runtime: spec.target_runtime.clone(),
         installed: binary.is_some(),
         binary_path: binary,
+        package_source: format_package_source(&spec.package),
+        wraps_target_runtime_binary: matches!(
+            &spec.package,
+            PackageSpec::NpxInstaller { .. } | PackageSpec::BunxInstaller { .. }
+        ),
+    }
+}
+
+fn format_package_source(pkg: &PackageSpec) -> String {
+    match pkg {
+        PackageSpec::NpmGlobal { package } => format!("npm-global ({package})"),
+        PackageSpec::NpmIsolated { package } => format!("npm-isolated ({package})"),
+        PackageSpec::NpxInstaller { package, .. } => format!("npx-installer ({package})"),
+        PackageSpec::BunxInstaller { package, .. } => format!("bunx-installer ({package})"),
+        PackageSpec::PythonTool { package } => format!("python-tool ({package})"),
+        PackageSpec::Manual { .. } => "manual".to_string(),
     }
 }
 
@@ -96,8 +114,17 @@ pub fn render_table(detected: &[DetectedHarness]) {
         for h in &installed {
             println!("\n{}", h.display_name.bold().cyan());
             if let Some(ref bin) = h.binary_path {
-                println!("  Binary:  {}", bin.display());
+                if h.wraps_target_runtime_binary {
+                    println!(
+                        "  Binary:  {} ({} runtime binary)",
+                        bin.display(),
+                        h.target_runtime
+                    );
+                } else {
+                    println!("  Binary:  {}", bin.display());
+                }
             }
+            println!("  Source:  {}", h.package_source);
             println!("  Target:  {}", h.target_runtime);
             if !h.aliases.is_empty() {
                 println!("  Aliases: {}", h.aliases.join(", "));
@@ -238,5 +265,89 @@ seed_files = []
             results.len(),
             crate::harnesses::builtin::BUILTIN_MANIFESTS.len()
         );
+    }
+
+    #[test]
+    fn format_package_source_covers_every_kind() {
+        assert_eq!(
+            format_package_source(&PackageSpec::NpmGlobal {
+                package: "p".to_string()
+            }),
+            "npm-global (p)"
+        );
+        assert_eq!(
+            format_package_source(&PackageSpec::NpmIsolated {
+                package: "p".to_string()
+            }),
+            "npm-isolated (p)"
+        );
+        assert_eq!(
+            format_package_source(&PackageSpec::NpxInstaller {
+                package: "p".to_string(),
+                args: Vec::new()
+            }),
+            "npx-installer (p)"
+        );
+        assert_eq!(
+            format_package_source(&PackageSpec::BunxInstaller {
+                package: "p".to_string(),
+                args: Vec::new()
+            }),
+            "bunx-installer (p)"
+        );
+        assert_eq!(
+            format_package_source(&PackageSpec::PythonTool {
+                package: "p".to_string()
+            }),
+            "python-tool (p)"
+        );
+        assert_eq!(
+            format_package_source(&PackageSpec::Manual {
+                instructions: "x".to_string()
+            }),
+            "manual"
+        );
+    }
+
+    #[test]
+    fn detect_one_marks_npx_installer_as_wrapping_runtime_binary() {
+        let spec = HarnessSpec {
+            id: "lazysh".to_string(),
+            aliases: Vec::new(),
+            display_name: "lazysh".to_string(),
+            target_runtime: "shell".to_string(),
+            package: PackageSpec::NpxInstaller {
+                package: "lazysh-ai".to_string(),
+                args: Vec::new(),
+            },
+            detect_binaries: vec!["sh".to_string()],
+            isolation: empty_iso("lazysh"),
+            launch_binary: Some("sh".to_string()),
+            launch_args: Vec::new(),
+        };
+        let result = detect_one(&spec);
+        assert!(result.installed);
+        assert!(result.wraps_target_runtime_binary);
+        assert_eq!(result.package_source, "npx-installer (lazysh-ai)");
+    }
+
+    #[test]
+    fn detect_one_does_not_mark_npm_isolated_as_wrapping() {
+        let spec = HarnessSpec {
+            id: "iso-sh".to_string(),
+            aliases: Vec::new(),
+            display_name: "iso-sh".to_string(),
+            target_runtime: "shell".to_string(),
+            package: PackageSpec::NpmIsolated {
+                package: "iso-sh-pkg".to_string(),
+            },
+            detect_binaries: vec!["sh".to_string()],
+            isolation: empty_iso("iso-sh"),
+            launch_binary: None,
+            launch_args: Vec::new(),
+        };
+        let result = detect_one(&spec);
+        assert!(!result.wraps_target_runtime_binary);
+        assert_eq!(result.package_source, "npm-isolated (iso-sh-pkg)");
     }
 }
