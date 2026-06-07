@@ -113,12 +113,14 @@ fn get_version(
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined = format!("{}{}", stdout.trim(), stderr.trim());
+    first_non_empty_line(&stdout).or_else(|| first_non_empty_line(&stderr))
+}
 
-    combined
-        .lines()
+fn first_non_empty_line(s: &str) -> Option<String> {
+    s.lines()
+        .map(str::trim)
         .find(|l| !l.is_empty())
-        .map(|l| l.trim().to_string())
+        .map(str::to_string)
 }
 
 fn collect_runtime_env_overrides(registry: &RuntimeRegistry) -> BTreeSet<String> {
@@ -194,32 +196,84 @@ mod tests {
     use super::*;
 
     #[cfg(unix)]
-    #[test]
-    fn get_version_runs_binary_in_sandboxed_home() {
+    fn write_script(label: &str, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
 
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
         let root = std::env::temp_dir().join(format!(
-            "hm-version-test-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|duration| duration.as_nanos())
-                .unwrap_or_default()
+            "hm-version-test-{label}-{}-{nanos}",
+            std::process::id()
         ));
         fs::create_dir_all(&root).unwrap();
-        let script = root.join("version-script");
-        fs::write(
-            &script,
-            "#!/bin/sh\nprintf '%s\\n' \"$HOME\"\nmkdir -p \"$HOME/touched\"\n",
-        )
-        .unwrap();
+        let script = root.join("v");
+        fs::write(&script, body).unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        script
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn get_version_runs_binary_in_sandboxed_home() {
+        let script = write_script(
+            "sandbox-home",
+            "#!/bin/sh\nprintf '%s\\n' \"$HOME\"\nmkdir -p \"$HOME/touched\"\n",
+        );
 
         let version = get_version(&script, "--version", &BTreeSet::new());
 
         let sandbox_home = version.expect("script prints sandbox HOME");
         assert!(sandbox_home.contains("hm-version-"));
         assert!(!PathBuf::from(sandbox_home).exists());
-        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(script.parent().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn get_version_prefers_stdout_first_line_over_stderr_warning() {
+        let script = write_script(
+            "stdout-prefer",
+            "#!/bin/sh\nprintf 'real-version-1.2.3\\n'\nprintf 'WARNING: helper dir refused\\n' >&2\n",
+        );
+
+        let version = get_version(&script, "--version", &BTreeSet::new());
+
+        assert_eq!(
+            version.as_deref(),
+            Some("real-version-1.2.3"),
+            "stderr WARNING must not bleed into version string"
+        );
+        let _ = fs::remove_dir_all(script.parent().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn get_version_falls_back_to_stderr_when_stdout_empty() {
+        let script = write_script("stderr-fallback", "#!/bin/sh\nprintf 'v9.9.9\\n' >&2\n");
+
+        let version = get_version(&script, "--version", &BTreeSet::new());
+
+        assert_eq!(
+            version.as_deref(),
+            Some("v9.9.9"),
+            "binaries that print only to stderr must still detect their version"
+        );
+        let _ = fs::remove_dir_all(script.parent().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn get_version_skips_leading_blank_stdout_lines() {
+        let script = write_script(
+            "leading-blank",
+            "#!/bin/sh\nprintf '\\n\\nactual-version\\n'\n",
+        );
+
+        let version = get_version(&script, "--version", &BTreeSet::new());
+
+        assert_eq!(version.as_deref(), Some("actual-version"));
+        let _ = fs::remove_dir_all(script.parent().unwrap());
     }
 }
