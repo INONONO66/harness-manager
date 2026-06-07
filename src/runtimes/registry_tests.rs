@@ -63,15 +63,6 @@ fn id_conflicts_with_runtime_blocks_runtime_binary_and_display_name() {
 }
 
 #[test]
-fn target_runtime_subdir_uses_runtime_isolation_subdir() {
-    let registry = RuntimeRegistry::builtin_only().unwrap();
-    assert_eq!(registry.target_runtime_subdir("Codex CLI"), "codex");
-    assert_eq!(registry.target_runtime_subdir("Claude Code"), "claude");
-    assert_eq!(registry.target_runtime_subdir("OpenCode"), "opencode");
-    assert_eq!(registry.target_runtime_subdir("Pi"), "pi");
-}
-
-#[test]
 fn user_manifest_overrides_builtin_display_name() {
     let registry = RuntimeRegistry::from_sources(&[
         RuntimeSource::builtins(),

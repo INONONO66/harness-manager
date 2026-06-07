@@ -1,62 +1,23 @@
 use std::collections::HashSet;
-use std::fs;
-use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::Colorize;
 
-use crate::runtimes::builtin::BUILTIN_RUNTIME_MANIFESTS;
 use crate::runtimes::manifest::{parse_toml, RuntimeRecord};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ManifestOrigin {
-    Builtin,
-    User,
-}
+mod discovery;
+mod source;
 
-struct LoadedRuntime {
-    record: RuntimeRecord,
-    routes: HashSet<String>,
-    origin: ManifestOrigin,
-    content: String,
-}
+pub use discovery::RuntimeDiscoveryEnv;
+pub use source::RuntimeSource;
+
+use discovery::{discover_config_sources, discover_data_sources};
+use source::{LoadedRuntime, ManifestOrigin};
 
 #[derive(Debug, Clone)]
 pub struct RuntimeRegistry {
     records: Vec<RuntimeRecord>,
     routes: Vec<HashSet<String>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RuntimeDiscoveryEnv {
-    pub xdg_config_home: Option<PathBuf>,
-    pub xdg_data_home: Option<PathBuf>,
-    pub home: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone)]
-pub enum RuntimeSource {
-    Builtins,
-    #[cfg(test)]
-    Manifest {
-        label: String,
-        content: String,
-    },
-    File(PathBuf),
-}
-
-impl RuntimeSource {
-    pub fn builtins() -> Self {
-        Self::Builtins
-    }
-
-    #[cfg(test)]
-    pub fn manifest(label: impl Into<String>, content: impl Into<String>) -> Self {
-        Self::Manifest {
-            label: label.into(),
-            content: content.into(),
-        }
-    }
 }
 
 impl RuntimeRegistry {
@@ -184,146 +145,6 @@ impl RuntimeRegistry {
         let normalized = normalize_runtime_name(id);
         self.routes.iter().any(|r| r.contains(&normalized))
     }
-
-    pub fn target_runtime_subdir(&self, display_name: &str) -> String {
-        self.find_by_display_name(display_name)
-            .and_then(|record| record.isolation.as_ref().map(|iso| iso.subdir.clone()))
-            .unwrap_or_else(|| normalize_runtime_name(display_name))
-    }
-}
-
-impl RuntimeDiscoveryEnv {
-    pub fn from_process() -> Self {
-        Self {
-            xdg_config_home: std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
-            xdg_data_home: std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
-            home: dirs::home_dir(),
-        }
-    }
-}
-
-impl RuntimeSource {
-    fn origin(&self) -> ManifestOrigin {
-        match self {
-            Self::Builtins => ManifestOrigin::Builtin,
-            #[cfg(test)]
-            Self::Manifest { .. } => ManifestOrigin::User,
-            Self::File(_) => ManifestOrigin::User,
-        }
-    }
-
-    fn contents(&self) -> Result<Vec<(String, String)>> {
-        match self {
-            Self::Builtins => Ok(BUILTIN_RUNTIME_MANIFESTS
-                .iter()
-                .map(|(label, content)| ((*label).to_string(), (*content).to_string()))
-                .collect()),
-            #[cfg(test)]
-            Self::Manifest { label, content } => Ok(vec![(label.clone(), content.clone())]),
-            Self::File(path) => {
-                let content = fs::read_to_string(path).with_context(|| {
-                    format!("failed to read runtime manifest {}", path.display())
-                })?;
-                Ok(vec![(path.display().to_string(), content)])
-            }
-        }
-    }
-}
-
-fn discover_config_sources(env: &RuntimeDiscoveryEnv) -> Result<Vec<RuntimeSource>> {
-    if let Some(root) = &env.xdg_config_home {
-        return discover_runtime_dir(&root.join("hm").join("runtimes.d"));
-    }
-    let Some(home) = &env.home else {
-        return Ok(Vec::new());
-    };
-    discover_runtime_dir(&home.join(".config").join("hm").join("runtimes.d"))
-}
-
-fn discover_data_sources(env: &RuntimeDiscoveryEnv) -> Result<Vec<RuntimeSource>> {
-    let root = env.xdg_data_home.clone().or_else(|| {
-        env.home
-            .as_ref()
-            .map(|home| home.join(".local").join("share"))
-    });
-    let Some(root) = root else {
-        return Ok(Vec::new());
-    };
-
-    let mut sources = discover_runtime_dir(&root.join("hm").join("runtimes.d"))?;
-    sources.extend(discover_plugin_sources(&root.join("hm").join("plugins"))?);
-    Ok(sources)
-}
-
-fn discover_runtime_dir(dir: &Path) -> Result<Vec<RuntimeSource>> {
-    let mut paths = manifest_files_in_dir(dir)?;
-    paths.sort();
-    Ok(paths.into_iter().map(RuntimeSource::File).collect())
-}
-
-fn discover_plugin_sources(dir: &Path) -> Result<Vec<RuntimeSource>> {
-    if !dir.is_dir() {
-        return Ok(Vec::new());
-    }
-    let canonical_root = dir
-        .canonicalize()
-        .with_context(|| format!("failed to canonicalize {}", dir.display()))?;
-    let mut paths = Vec::new();
-    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
-        let entry = entry?;
-        if entry.file_type()?.is_symlink() {
-            anyhow::bail!(
-                "plugin runtime path must not traverse symlink: {}",
-                entry.path().display()
-            );
-        }
-        if !entry.file_type()?.is_dir() {
-            continue;
-        }
-        let path = entry.path().join("runtime.toml");
-        if path.exists() {
-            reject_symlink_escape(&canonical_root, &path)?;
-            paths.push(path);
-        }
-    }
-    paths.sort();
-    Ok(paths.into_iter().map(RuntimeSource::File).collect())
-}
-
-fn manifest_files_in_dir(dir: &Path) -> Result<Vec<PathBuf>> {
-    if !dir.is_dir() {
-        return Ok(Vec::new());
-    }
-    let canonical_root = dir
-        .canonicalize()
-        .with_context(|| format!("failed to canonicalize {}", dir.display()))?;
-    let mut paths = Vec::new();
-    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) != Some("toml") {
-            continue;
-        }
-        reject_symlink_escape(&canonical_root, &path)?;
-        paths.push(path);
-    }
-    Ok(paths)
-}
-
-fn reject_symlink_escape(root: &Path, path: &Path) -> Result<()> {
-    if fs::symlink_metadata(path)?.file_type().is_symlink() {
-        anyhow::bail!("runtime manifest must not be a symlink: {}", path.display());
-    }
-    let canonical = path
-        .canonicalize()
-        .with_context(|| format!("failed to canonicalize {}", path.display()))?;
-    if !canonical.starts_with(root) {
-        anyhow::bail!(
-            "runtime manifest path escapes discovery root: {}",
-            path.display()
-        );
-    }
-    Ok(())
 }
 
 fn normalize_runtime_name(value: &str) -> String {
