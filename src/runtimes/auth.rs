@@ -47,7 +47,7 @@ fn run_probe(probe: &AuthProbeRecord, config_dir: Option<&Path>) -> AuthStatus {
             marker_file,
             keychain_service,
             label,
-        } => probe_keychain(config_dir, marker_file, keychain_service, label),
+        } => probe_keychain(config_dir, marker_file, keychain_service.as_deref(), label),
     }
 }
 
@@ -204,7 +204,7 @@ fn resolve_data_file(data_subdir: &str, file_name: &str) -> Option<std::path::Pa
 fn probe_keychain(
     config_dir: Option<&Path>,
     marker_file: &str,
-    keychain_service: &str,
+    keychain_service: Option<&str>,
     label: &str,
 ) -> AuthStatus {
     if !cfg!(target_os = "macos") {
@@ -216,7 +216,10 @@ fn probe_keychain(
     if !(dir.is_dir() && dir.join(marker_file).is_file()) {
         return AuthStatus::NotConfigured;
     }
-    if !keychain_item_exists(keychain_service) {
+    let Some(service) = keychain_service else {
+        return AuthStatus::NotConfigured;
+    };
+    if !keychain_item_exists(service) {
         return AuthStatus::NotConfigured;
     }
     AuthStatus::Valid {
@@ -541,7 +544,12 @@ mod keychain_probe_tests {
         let dir = unique_dir("marker-only");
         std::fs::write(dir.join("settings.json"), "{}").unwrap();
         let service = unique_service("missing");
-        let result = probe_keychain(Some(&dir), "settings.json", &service, "OAuth (Keychain)");
+        let result = probe_keychain(
+            Some(&dir),
+            "settings.json",
+            Some(&service),
+            "OAuth (Keychain)",
+        );
         let _ = std::fs::remove_dir_all(&dir);
         assert!(
             matches!(result, AuthStatus::NotConfigured),
@@ -553,7 +561,12 @@ mod keychain_probe_tests {
     fn keychain_probe_no_marker_returns_not_configured() {
         let dir = unique_dir("no-marker");
         let service = unique_service("no-marker");
-        let result = probe_keychain(Some(&dir), "settings.json", &service, "OAuth (Keychain)");
+        let result = probe_keychain(
+            Some(&dir),
+            "settings.json",
+            Some(&service),
+            "OAuth (Keychain)",
+        );
         let _ = std::fs::remove_dir_all(&dir);
         assert!(matches!(result, AuthStatus::NotConfigured));
     }
@@ -561,8 +574,20 @@ mod keychain_probe_tests {
     #[test]
     fn keychain_probe_no_config_dir_returns_not_configured() {
         let service = unique_service("no-dir");
-        let result = probe_keychain(None, "settings.json", &service, "OAuth (Keychain)");
+        let result = probe_keychain(None, "settings.json", Some(&service), "OAuth (Keychain)");
         assert!(matches!(result, AuthStatus::NotConfigured));
+    }
+
+    #[test]
+    fn keychain_probe_legacy_manifest_without_service_returns_not_configured() {
+        let dir = unique_dir("legacy-no-service");
+        std::fs::write(dir.join("settings.json"), "{}").unwrap();
+        let result = probe_keychain(Some(&dir), "settings.json", None, "OAuth (Keychain)");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            matches!(result, AuthStatus::NotConfigured),
+            "legacy manifest missing keychain_service must fail closed, not report Valid; got {result:?}"
+        );
     }
 
     #[test]
@@ -573,7 +598,7 @@ mod keychain_probe_tests {
         let result = probe_keychain(
             Some(&dir),
             "settings.json",
-            "any-service",
+            Some("any-service"),
             "OAuth (Keychain)",
         );
         let _ = std::fs::remove_dir_all(&dir);

@@ -441,3 +441,71 @@ endpoint_strip_v1 = false
         "expected config_path error, got: {err:#}"
     );
 }
+
+#[test]
+fn parser_accepts_legacy_keychain_heuristic_without_keychain_service() {
+    let input = r#"
+schema_version = 1
+name = "Legacy"
+binary_names = ["legacy"]
+version_arg = "--version"
+
+[config_locator]
+kind = "env-or-home"
+env = ""
+home_relative = ".legacy"
+
+[[auth_probes]]
+kind = "keychain-heuristic"
+marker_file = "settings.json"
+label = "OAuth (macOS Keychain)"
+
+[auth_login]
+kind = "unsupported"
+"#;
+    let record = parse_toml("legacy.toml", input).expect("legacy manifest must parse");
+    let probe = record
+        .auth_probes
+        .iter()
+        .find(|p| matches!(p, AuthProbeRecord::KeychainHeuristic { .. }))
+        .expect("keychain probe present");
+    if let AuthProbeRecord::KeychainHeuristic {
+        keychain_service, ..
+    } = probe
+    {
+        assert!(
+            keychain_service.is_none(),
+            "legacy manifest with no keychain_service field parses as None"
+        );
+    }
+}
+
+#[test]
+fn parser_rejects_empty_keychain_service_when_explicitly_set() {
+    let input = r#"
+schema_version = 1
+name = "BadKeychain"
+binary_names = ["badkc"]
+version_arg = "--version"
+
+[config_locator]
+kind = "env-or-home"
+env = ""
+home_relative = ".badkc"
+
+[[auth_probes]]
+kind = "keychain-heuristic"
+marker_file = "settings.json"
+keychain_service = "   "
+label = "OAuth (macOS Keychain)"
+
+[auth_login]
+kind = "unsupported"
+"#;
+    let err =
+        parse_toml("badkc.toml", input).expect_err("whitespace-only keychain_service rejected");
+    assert!(
+        err.to_string().contains("keychain_service"),
+        "expected keychain_service validation error, got: {err:#}"
+    );
+}
