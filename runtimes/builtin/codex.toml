@@ -19,8 +19,16 @@ agent_identity_label = "Agent identity"
 
 [[auth_probes]]
 kind = "env-keys"
-vars = ["CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY"]
+vars = ["CODEX_API_KEY", "OPENAI_API_KEY"]
 label = "API key"
+
+# Codex 0.137 reads CODEX_ACCESS_TOKEN as an OAuth/access bearer and loads it
+# as the active agent identity (see openai/codex `read_codex_access_token_from_env`
+# and the `load_auth_reads_access_token_from_env` test). It is NOT an API key.
+[[auth_probes]]
+kind = "env-keys"
+vars = ["CODEX_ACCESS_TOKEN"]
+label = "Access token"
 
 [auth_login]
 kind = "exec"
