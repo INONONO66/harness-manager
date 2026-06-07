@@ -262,24 +262,15 @@ fn is_valid_typed_credential(value: &serde_json::Value, allowed_types: &[&str]) 
     }
 }
 
-/// OAuth `expires` per upstream is a non-negative integer (NonNegativeInt in
-/// OpenCode; milliseconds-since-epoch integer in Pi). Reject negative values
-/// and any fractional/non-finite numbers — these can never be a real expiry.
+/// OAuth `expires` per upstream is a non-negative INTEGER literal (NonNegativeInt
+/// in OpenCode; milliseconds-since-epoch integer in Pi). Accept ONLY JSON
+/// non-negative integers (`Value::as_u64`). Reject negative values, fractional
+/// floats (`1.5`), integer-valued floats (`1.0`, `1e3`), and large fractional
+/// values that f64 conversion would silently round to an integer
+/// (`9007199254740992.5`) — neither runtime writes these. Strictly integer-only
+/// validation prevents the f64-precision attack surface entirely.
 fn is_valid_expires(value: Option<&serde_json::Value>) -> bool {
-    let Some(v) = value else {
-        return false;
-    };
-    if let Some(i) = v.as_i64() {
-        return i >= 0;
-    }
-    if let Some(u) = v.as_u64() {
-        let _ = u;
-        return true;
-    }
-    if let Some(f) = v.as_f64() {
-        return f.is_finite() && f >= 0.0 && f.fract() == 0.0;
-    }
-    false
+    value.and_then(serde_json::Value::as_u64).is_some()
 }
 
 fn resolve_data_file(data_subdir: &str, file_name: &str) -> Option<std::path::PathBuf> {
@@ -1351,6 +1342,48 @@ mod data_dir_json_tests {
         assert!(
             result.is_none(),
             "fractional expires must reject oauth (integer milliseconds upstream); got {result:?}"
+        );
+    }
+
+    #[test]
+    fn data_dir_oauth_with_integer_valued_float_expires_returns_none() {
+        let file = write_provider_file(
+            "oauth-float-int-expires",
+            r#"{"x": {"type": "oauth", "access": "a", "refresh": "r", "expires": 1.0}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(
+            result.is_none(),
+            "integer-valued float expires (1.0) is still f64-backed and must be rejected — upstream writes integer literals; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn data_dir_oauth_with_large_fractional_expires_returns_none() {
+        let file = write_provider_file(
+            "oauth-huge-frac-expires",
+            r#"{"x": {"type": "oauth", "access": "a", "refresh": "r", "expires": 9007199254740992.5}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(
+            result.is_none(),
+            "f64 precision can round 9007199254740992.5 to an integer; this must still be rejected because as_u64() never succeeds for f64-backed values; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn data_dir_oauth_with_exponent_expires_returns_none() {
+        let file = write_provider_file(
+            "oauth-exp-expires",
+            r#"{"x": {"type": "oauth", "access": "a", "refresh": "r", "expires": 1e3}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(
+            result.is_none(),
+            "exponent literal 1e3 is f64-backed; must be rejected; got {result:?}"
         );
     }
 
