@@ -10,10 +10,12 @@ env = "CODEX_HOME"
 home_relative = ".codex"
 
 [[auth_probes]]
-kind = "json-file"
+kind = "codex-auth-file"
 relative_path = "auth.json"
-existence_field = "tokens"
-label = "ChatGPT OAuth"
+oauth_label = "ChatGPT OAuth"
+api_key_label = "API key (OPENAI_API_KEY in auth.json)"
+personal_access_token_label = "Personal access token"
+agent_identity_label = "Agent identity"
 
 [[auth_probes]]
 kind = "env-keys"

@@ -48,6 +48,21 @@ fn run_probe(probe: &AuthProbeRecord, config_dir: Option<&Path>) -> AuthStatus {
             keychain_service,
             label,
         } => probe_keychain(config_dir, marker_file, keychain_service.as_deref(), label),
+        AuthProbeRecord::CodexAuthFile {
+            relative_path,
+            oauth_label,
+            api_key_label,
+            personal_access_token_label,
+            agent_identity_label,
+        } => probe_codex_auth_file(
+            config_dir,
+            relative_path,
+            oauth_label,
+            api_key_label,
+            personal_access_token_label.as_deref(),
+            agent_identity_label.as_deref(),
+        )
+        .unwrap_or(AuthStatus::NotConfigured),
     }
 }
 
@@ -201,6 +216,63 @@ fn resolve_data_file(data_subdir: &str, file_name: &str) -> Option<std::path::Pa
         .filter(|f| f.is_file())
 }
 
+fn non_empty_json_str(value: Option<&serde_json::Value>) -> Option<&str> {
+    let s = value.and_then(|v| v.as_str())?;
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+fn probe_codex_auth_file(
+    config_dir: Option<&Path>,
+    relative_path: &str,
+    oauth_label: &str,
+    api_key_label: &str,
+    pat_label: Option<&str>,
+    agent_identity_label: Option<&str>,
+) -> Option<AuthStatus> {
+    let dir = config_dir?;
+    let file = dir.join(relative_path);
+    if !file.is_file() {
+        return None;
+    }
+    let content = std::fs::read_to_string(&file).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    if let Some(tokens_obj) = json.get("tokens").filter(|v| v.is_object()) {
+        let access = non_empty_json_str(tokens_obj.get("access_token"));
+        let refresh = non_empty_json_str(tokens_obj.get("refresh_token"));
+        if let (Some(access_token), Some(_)) = (access, refresh) {
+            return Some(token_to_auth_status(access_token, oauth_label));
+        }
+    }
+
+    if non_empty_json_str(json.get("OPENAI_API_KEY")).is_some() {
+        return Some(AuthStatus::Valid {
+            detail: api_key_label.to_string(),
+        });
+    }
+
+    if let Some(label) = pat_label {
+        if non_empty_json_str(json.get("personal_access_token")).is_some() {
+            return Some(AuthStatus::Valid {
+                detail: label.to_string(),
+            });
+        }
+    }
+
+    if let Some(label) = agent_identity_label {
+        if let Some(token) = non_empty_json_str(json.get("agent_identity")) {
+            return Some(token_to_auth_status(token, label));
+        }
+    }
+
+    None
+}
+
 fn probe_keychain(
     config_dir: Option<&Path>,
     marker_file: &str,
@@ -337,6 +409,280 @@ fn base64_decode(input: &str) -> Option<Vec<u8>> {
         }
     }
     Some(output)
+}
+
+#[cfg(test)]
+mod codex_auth_file_tests {
+    use super::{probe_codex_auth_file, AuthStatus};
+    use std::path::PathBuf;
+
+    fn write_auth(label: &str, body: &str) -> (PathBuf, String) {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let dir = std::env::temp_dir().join(format!(
+            "hm-codex-auth-test-{label}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("auth.json"), body).unwrap();
+        (dir, "auth.json".to_string())
+    }
+
+    fn probe(dir: &std::path::Path, file: &str) -> Option<AuthStatus> {
+        probe_codex_auth_file(
+            Some(dir),
+            file,
+            "ChatGPT OAuth",
+            "API key (OPENAI_API_KEY)",
+            Some("Personal access token"),
+            Some("Agent identity"),
+        )
+    }
+
+    #[test]
+    fn tokens_null_returns_none() {
+        let (dir, f) = write_auth("null", r#"{"tokens": null}"#);
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_none(), "got {result:?}");
+    }
+
+    #[test]
+    fn tokens_empty_object_returns_none() {
+        let (dir, f) = write_auth("empty-obj", r#"{"tokens": {}}"#);
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_none(), "got {result:?}");
+    }
+
+    #[test]
+    fn tokens_as_string_returns_none() {
+        let (dir, f) = write_auth("string", r#"{"tokens": "not-an-object"}"#);
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "tokens must be object, not string: got {result:?}"
+        );
+    }
+
+    #[test]
+    fn tokens_as_array_returns_none() {
+        let (dir, f) = write_auth("array", r#"{"tokens": ["not-an-object"]}"#);
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "tokens must be object, not array: got {result:?}"
+        );
+    }
+
+    #[test]
+    fn tokens_metadata_only_returns_none() {
+        let (dir, f) = write_auth("metadata-only", r#"{"tokens": {"account_id": "acct-123"}}"#);
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "metadata without access_token/refresh_token must NOT be OAuth: got {result:?}"
+        );
+    }
+
+    #[test]
+    fn tokens_access_only_returns_none() {
+        let (dir, f) = write_auth("access-only", r#"{"tokens": {"access_token": "a"}}"#);
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "access_token without refresh_token must NOT be OAuth: got {result:?}"
+        );
+    }
+
+    #[test]
+    fn tokens_refresh_only_returns_none() {
+        let (dir, f) = write_auth("refresh-only", r#"{"tokens": {"refresh_token": "r"}}"#);
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "refresh_token without access_token must NOT be OAuth: got {result:?}"
+        );
+    }
+
+    #[test]
+    fn tokens_both_present_returns_oauth_valid() {
+        let (dir, f) = write_auth(
+            "both-real",
+            r#"{"tokens": {"access_token": "a-real-token", "refresh_token": "r-real-token"}}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(
+                    detail.contains("ChatGPT OAuth"),
+                    "OAuth label expected: {detail}"
+                );
+            }
+            other => panic!("expected Valid OAuth, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tokens_both_whitespace_returns_none() {
+        let (dir, f) = write_auth(
+            "both-ws",
+            r#"{"tokens": {"access_token": "   ", "refresh_token": "   "}}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "whitespace tokens must NOT be OAuth: got {result:?}"
+        );
+    }
+
+    #[test]
+    fn openai_api_key_only_returns_api_key_valid() {
+        let (dir, f) = write_auth("api-only", r#"{"OPENAI_API_KEY": "sk-test-1234"}"#);
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(
+                    detail.contains("OPENAI_API_KEY"),
+                    "API key label expected: {detail}"
+                );
+            }
+            other => panic!("expected Valid API key, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn openai_api_key_with_null_tokens_returns_api_key_valid() {
+        let (dir, f) = write_auth(
+            "api-with-null-tokens",
+            r#"{"OPENAI_API_KEY":"sk-test-key","tokens":null,"last_refresh":null}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(
+                    detail.contains("OPENAI_API_KEY"),
+                    "API key label expected: {detail}"
+                );
+            }
+            other => panic!("expected Valid API key, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_openai_api_key_returns_none() {
+        let (dir, f) = write_auth("api-empty", r#"{"OPENAI_API_KEY": ""}"#);
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_none(), "got {result:?}");
+    }
+
+    #[test]
+    fn personal_access_token_only_returns_pat_valid() {
+        let (dir, f) = write_auth("pat", r#"{"personal_access_token": "pat-xyz"}"#);
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(
+                    detail.contains("Personal access token"),
+                    "PAT label expected: {detail}"
+                );
+            }
+            other => panic!("expected Valid PAT, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn agent_identity_only_returns_agent_identity_valid() {
+        let (dir, f) = write_auth("ai", r#"{"agent_identity": "agent-jwt-token"}"#);
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(
+                    detail.contains("Agent identity"),
+                    "Agent identity label expected: {detail}"
+                );
+            }
+            other => panic!("expected Valid Agent identity, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_object_returns_none() {
+        let (dir, f) = write_auth("empty", "{}");
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_none(), "got {result:?}");
+    }
+
+    #[test]
+    fn priority_tokens_wins_over_api_key() {
+        let (dir, f) = write_auth(
+            "priority",
+            r#"{"OPENAI_API_KEY": "sk-test", "tokens": {"access_token": "a", "refresh_token": "r"}}"#,
+        );
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(
+                    detail.contains("ChatGPT OAuth"),
+                    "OAuth must win over API key (Codex stores both during transitions): {detail}"
+                );
+            }
+            other => panic!("expected OAuth Valid (priority), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn missing_file_returns_none() {
+        let dir =
+            std::env::temp_dir().join(format!("hm-codex-auth-test-missing-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let result = probe(&dir, "auth.json");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn malformed_json_returns_none() {
+        let (dir, f) = write_auth("bad-json", "not json at all");
+        let result = probe(&dir, &f);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn optional_labels_skipped_when_none() {
+        let (dir, f) = write_auth("pat-no-label", r#"{"personal_access_token": "pat-xyz"}"#);
+        let result = probe_codex_auth_file(
+            Some(dir.as_path()),
+            &f,
+            "ChatGPT OAuth",
+            "API key",
+            None,
+            None,
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "PAT must not produce Valid when no pat_label declared in manifest: got {result:?}"
+        );
+    }
 }
 
 #[cfg(test)]
