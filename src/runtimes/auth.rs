@@ -43,9 +43,11 @@ fn run_probe(probe: &AuthProbeRecord, config_dir: Option<&Path>) -> AuthStatus {
         } => {
             probe_data_dir_json(data_subdir, file_name, label).unwrap_or(AuthStatus::NotConfigured)
         }
-        AuthProbeRecord::KeychainHeuristic { marker_file, label } => {
-            probe_keychain(config_dir, marker_file, label)
-        }
+        AuthProbeRecord::KeychainHeuristic {
+            marker_file,
+            keychain_service,
+            label,
+        } => probe_keychain(config_dir, marker_file, keychain_service.as_deref(), label),
     }
 }
 
@@ -80,17 +82,37 @@ fn probe_json_file(
     }
 
     if !existence_field.is_empty() {
-        if json.get(existence_field).is_some() || json.get(to_camel(existence_field)).is_some() {
-            return Some(AuthStatus::Valid {
-                detail: label.to_string(),
-            });
+        let field = json
+            .get(existence_field)
+            .or_else(|| json.get(to_camel(existence_field)))?;
+        if !is_meaningful_json_value(field) {
+            return None;
         }
-        return None;
+        return Some(AuthStatus::Valid {
+            detail: label.to_string(),
+        });
     }
 
+    let any_meaningful = json
+        .as_object()
+        .map(|obj| obj.values().any(is_meaningful_json_value))
+        .unwrap_or(false);
+    if !any_meaningful {
+        return None;
+    }
     Some(AuthStatus::Valid {
         detail: label.to_string(),
     })
+}
+
+fn is_meaningful_json_value(v: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    match v {
+        Value::Null | Value::Number(_) | Value::Bool(_) => false,
+        Value::String(s) => !s.trim().is_empty(),
+        Value::Object(o) => o.values().any(is_meaningful_json_value),
+        Value::Array(a) => a.iter().any(is_meaningful_json_value),
+    }
 }
 
 fn probe_oauth_file(
@@ -145,20 +167,25 @@ fn probe_nested_oauth(
 
 fn probe_data_dir_json(data_subdir: &str, file_name: &str, label: &str) -> Option<AuthStatus> {
     let file = resolve_data_file(data_subdir, file_name)?;
+    probe_data_dir_json_at(&file, label)
+}
+
+fn probe_data_dir_json_at(file: &Path, label: &str) -> Option<AuthStatus> {
     if !file.is_file() {
         return None;
     }
-
-    let content = std::fs::read_to_string(&file).ok()?;
+    let content = std::fs::read_to_string(file).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
-
-    if json.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+    let object = json.as_object()?;
+    let meaningful_count = object
+        .values()
+        .filter(|v| is_meaningful_json_value(v))
+        .count();
+    if meaningful_count == 0 {
         return None;
     }
-
-    let provider_count = json.as_object().map(|o| o.len()).unwrap_or(0);
     Some(AuthStatus::Valid {
-        detail: format!("{} ({} providers)", label, provider_count),
+        detail: format!("{} ({} providers)", label, meaningful_count),
     })
 }
 
@@ -174,19 +201,49 @@ fn resolve_data_file(data_subdir: &str, file_name: &str) -> Option<std::path::Pa
         .filter(|f| f.is_file())
 }
 
-fn probe_keychain(config_dir: Option<&Path>, marker_file: &str, label: &str) -> AuthStatus {
+fn probe_keychain(
+    config_dir: Option<&Path>,
+    marker_file: &str,
+    keychain_service: Option<&str>,
+    label: &str,
+) -> AuthStatus {
     if !cfg!(target_os = "macos") {
         return AuthStatus::NotConfigured;
     }
     let Some(dir) = config_dir else {
         return AuthStatus::NotConfigured;
     };
-    if dir.is_dir() && dir.join(marker_file).is_file() {
-        return AuthStatus::Valid {
-            detail: label.to_string(),
-        };
+    if !(dir.is_dir() && dir.join(marker_file).is_file()) {
+        return AuthStatus::NotConfigured;
     }
-    AuthStatus::NotConfigured
+    let Some(service) = keychain_service else {
+        return AuthStatus::NotConfigured;
+    };
+    if !keychain_item_exists(service) {
+        return AuthStatus::NotConfigured;
+    }
+    AuthStatus::Valid {
+        detail: label.to_string(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn keychain_item_exists(service: &str) -> bool {
+    match std::process::Command::new("security")
+        .args(["find-generic-password", "-s", service])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null())
+        .status()
+    {
+        Ok(status) => status.success(),
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn keychain_item_exists(_service: &str) -> bool {
+    false
 }
 
 fn token_to_auth_status(token: &str, label: &str) -> AuthStatus {
@@ -280,6 +337,363 @@ fn base64_decode(input: &str) -> Option<Vec<u8>> {
         }
     }
     Some(output)
+}
+
+#[cfg(test)]
+mod json_file_tests {
+    use super::{probe_json_file, AuthStatus};
+    use std::path::PathBuf;
+
+    fn write_json(label: &str, body: &str) -> (PathBuf, String) {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let dir = std::env::temp_dir().join(format!(
+            "hm-json-probe-{label}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file_name = "auth.json".to_string();
+        std::fs::write(dir.join(&file_name), body).unwrap();
+        (dir, file_name)
+    }
+
+    #[test]
+    fn json_file_with_null_existence_field_returns_none() {
+        let (dir, file) = write_json("null-tokens", r#"{"tokens": null}"#);
+        let result = probe_json_file(Some(&dir), &file, "tokens", "ChatGPT OAuth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "null tokens field must not be valid auth; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_with_empty_object_existence_field_returns_none() {
+        let (dir, file) = write_json("empty-obj-tokens", r#"{"tokens": {}}"#);
+        let result = probe_json_file(Some(&dir), &file, "tokens", "ChatGPT OAuth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "empty {{}} tokens field must not be valid auth (logged-out state); got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_with_empty_string_existence_field_returns_none() {
+        let (dir, file) = write_json("empty-str-tokens", r#"{"tokens": ""}"#);
+        let result = probe_json_file(Some(&dir), &file, "tokens", "ChatGPT OAuth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "empty-string tokens field must not be valid auth; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_with_whitespace_string_existence_field_returns_none() {
+        let (dir, file) = write_json("ws-str-tokens", r#"{"tokens": "   "}"#);
+        let result = probe_json_file(Some(&dir), &file, "tokens", "ChatGPT OAuth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "whitespace tokens field must not be valid auth; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_with_real_nested_token_object_returns_valid() {
+        let (dir, file) = write_json(
+            "real-nested",
+            r#"{"tokens": {"access_token": "real-secret"}}"#,
+        );
+        let result = probe_json_file(Some(&dir), &file, "tokens", "ChatGPT OAuth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            matches!(result, Some(AuthStatus::Valid { .. })),
+            "tokens object with real content must be Valid; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_with_real_string_token_returns_valid() {
+        let (dir, file) = write_json("real-str", r#"{"tokens": "real-token-abcdef"}"#);
+        let result = probe_json_file(Some(&dir), &file, "tokens", "ChatGPT OAuth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            matches!(result, Some(AuthStatus::Valid { .. })),
+            "real string token must be Valid; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_with_object_of_nulls_returns_none() {
+        let (dir, file) = write_json(
+            "deeply-null",
+            r#"{"tokens": {"access_token": null, "refresh_token": null}}"#,
+        );
+        let result = probe_json_file(Some(&dir), &file, "tokens", "ChatGPT OAuth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "tokens object whose every field is null must not be valid auth; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_missing_existence_field_returns_none() {
+        let (dir, file) = write_json("no-tokens", r#"{"other": "data"}"#);
+        let result = probe_json_file(Some(&dir), &file, "tokens", "ChatGPT OAuth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn json_file_no_existence_field_with_only_null_values_returns_none() {
+        let (dir, file) = write_json("no-field-null", r#"{"x": null, "y": null}"#);
+        let result = probe_json_file(Some(&dir), &file, "", "Pi token");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "no-existence-field probe must skip files whose every value is null; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_no_existence_field_with_one_real_value_returns_valid() {
+        let (dir, file) = write_json("no-field-real", r#"{"token": "real-secret"}"#);
+        let result = probe_json_file(Some(&dir), &file, "", "Pi token");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            matches!(result, Some(AuthStatus::Valid { .. })),
+            "no-existence-field probe must accept a meaningful value; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_with_bool_true_existence_field_returns_none() {
+        let (dir, file) = write_json("bool-true", r#"{"tokens": true}"#);
+        let result = probe_json_file(Some(&dir), &file, "tokens", "ChatGPT OAuth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "bool true is not a real OAuth token; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_with_number_existence_field_returns_none() {
+        let (dir, file) = write_json("number", r#"{"tokens": 0}"#);
+        let result = probe_json_file(Some(&dir), &file, "tokens", "ChatGPT OAuth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "number is not a real OAuth token; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_file_no_existence_field_with_only_bools_and_numbers_returns_none() {
+        let (dir, file) = write_json("scalars-only", r#"{"x": false, "y": 0}"#);
+        let result = probe_json_file(Some(&dir), &file, "", "Pi token");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "no-existence-field probe must not treat bool/number placeholders as auth; got {result:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod keychain_probe_tests {
+    use super::{probe_keychain, AuthStatus};
+    use std::path::PathBuf;
+
+    fn unique_dir(label: &str) -> PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let p = std::env::temp_dir().join(format!(
+            "hm-keychain-test-{label}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    fn unique_service(label: &str) -> String {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        format!(
+            "hm-test-nonexistent-keychain-{}-{}-{nanos}",
+            label,
+            std::process::id()
+        )
+    }
+
+    #[test]
+    fn keychain_probe_marker_present_but_keychain_item_missing_returns_not_configured() {
+        let dir = unique_dir("marker-only");
+        std::fs::write(dir.join("settings.json"), "{}").unwrap();
+        let service = unique_service("missing");
+        let result = probe_keychain(
+            Some(&dir),
+            "settings.json",
+            Some(&service),
+            "OAuth (Keychain)",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            matches!(result, AuthStatus::NotConfigured),
+            "marker file alone must NOT report Valid when keychain item is absent; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn keychain_probe_no_marker_returns_not_configured() {
+        let dir = unique_dir("no-marker");
+        let service = unique_service("no-marker");
+        let result = probe_keychain(
+            Some(&dir),
+            "settings.json",
+            Some(&service),
+            "OAuth (Keychain)",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(matches!(result, AuthStatus::NotConfigured));
+    }
+
+    #[test]
+    fn keychain_probe_no_config_dir_returns_not_configured() {
+        let service = unique_service("no-dir");
+        let result = probe_keychain(None, "settings.json", Some(&service), "OAuth (Keychain)");
+        assert!(matches!(result, AuthStatus::NotConfigured));
+    }
+
+    #[test]
+    fn keychain_probe_legacy_manifest_without_service_returns_not_configured() {
+        let dir = unique_dir("legacy-no-service");
+        std::fs::write(dir.join("settings.json"), "{}").unwrap();
+        let result = probe_keychain(Some(&dir), "settings.json", None, "OAuth (Keychain)");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            matches!(result, AuthStatus::NotConfigured),
+            "legacy manifest missing keychain_service must fail closed, not report Valid; got {result:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn keychain_probe_on_non_macos_is_not_configured_regardless_of_marker() {
+        let dir = unique_dir("non-mac");
+        std::fs::write(dir.join("settings.json"), "{}").unwrap();
+        let result = probe_keychain(
+            Some(&dir),
+            "settings.json",
+            Some("any-service"),
+            "OAuth (Keychain)",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(matches!(result, AuthStatus::NotConfigured));
+    }
+}
+
+#[cfg(test)]
+mod data_dir_json_tests {
+    use super::{probe_data_dir_json_at, AuthStatus};
+    use std::path::PathBuf;
+
+    fn write_provider_file(label: &str, body: &str) -> PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let dir = std::env::temp_dir().join(format!(
+            "hm-data-dir-json-{label}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("auth.json");
+        std::fs::write(&file, body).unwrap();
+        file
+    }
+
+    #[test]
+    fn data_dir_all_null_providers_returns_none() {
+        let file = write_provider_file(
+            "all-null",
+            r#"{"openai": null, "anthropic": null, "google": null}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(
+            result.is_none(),
+            "all-null provider entries must not report Valid; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn data_dir_one_real_among_nulls_counts_only_meaningful() {
+        let file = write_provider_file(
+            "mixed",
+            r#"{"openai": null, "anthropic": {"type": "api", "key": "real"}, "google": null}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(
+                    detail.contains("(1 providers)"),
+                    "expected '(1 providers)' counting only meaningful entries, got: {detail}"
+                );
+            }
+            other => panic!("expected Valid with count, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn data_dir_multiple_real_providers_counted() {
+        let file = write_provider_file(
+            "two-real",
+            r#"{"openai": {"key": "k1"}, "anthropic": {"key": "k2"}, "stale": null}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        match result {
+            Some(AuthStatus::Valid { detail }) => {
+                assert!(
+                    detail.contains("(2 providers)"),
+                    "expected '(2 providers)' from 2 real and 1 null, got: {detail}"
+                );
+            }
+            other => panic!("expected Valid with count, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn data_dir_empty_object_returns_none() {
+        let file = write_provider_file("empty", "{}");
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn data_dir_non_object_returns_none() {
+        let file = write_provider_file("array", "[1, 2, 3]");
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(result.is_none());
+    }
 }
 
 #[cfg(test)]

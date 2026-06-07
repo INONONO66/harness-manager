@@ -63,13 +63,14 @@ pub enum AuthProbeRecord {
         path: Vec<String>,
         label: String,
     },
+    KeychainHeuristic {
+        marker_file: String,
+        keychain_service: Option<String>,
+        label: String,
+    },
     DataDirJsonFile {
         data_subdir: String,
         file_name: String,
-        label: String,
-    },
-    KeychainHeuristic {
-        marker_file: String,
         label: String,
     },
 }
@@ -207,6 +208,8 @@ enum AuthProbeManifest {
     },
     KeychainHeuristic {
         marker_file: String,
+        #[serde(default)]
+        keychain_service: Option<String>,
         label: String,
     },
 }
@@ -467,10 +470,25 @@ fn convert_auth_probe(path_label: &str, probe: AuthProbeManifest) -> Result<Auth
                 label,
             })
         }
-        AuthProbeManifest::KeychainHeuristic { marker_file, label } => {
+        AuthProbeManifest::KeychainHeuristic {
+            marker_file,
+            keychain_service,
+            label,
+        } => {
             validate_relative_path(path_label, "auth_probes.marker_file", &marker_file)?;
+            if let Some(ref svc) = keychain_service {
+                ensure(
+                    !svc.trim().is_empty(),
+                    path_label,
+                    "auth_probes.keychain_service",
+                )?;
+            }
             ensure(!label.is_empty(), path_label, "auth_probes.label")?;
-            Ok(AuthProbeRecord::KeychainHeuristic { marker_file, label })
+            Ok(AuthProbeRecord::KeychainHeuristic {
+                marker_file,
+                keychain_service,
+                label,
+            })
         }
     }
 }
