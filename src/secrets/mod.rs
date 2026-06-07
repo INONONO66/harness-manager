@@ -131,7 +131,7 @@ pub fn resolve_secret(uri: &str) -> anyhow::Result<String> {
     if let Some(path) = stripped.strip_prefix("file://") {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read secret file: {}", path))?;
-        return Ok(content.trim_end_matches('\n').to_string());
+        return Ok(content.trim_end_matches(['\r', '\n']).to_string());
     }
 
     if let Some(var) = stripped.strip_prefix("env/") {
@@ -177,8 +177,40 @@ fn resolve_keychain(service: &str) -> anyhow::Result<String> {
 }
 
 pub fn mask_secret(value: &str) -> String {
-    if value.len() <= 8 {
+    if value.chars().count() <= 8 {
         return "***".to_string();
     }
-    format!("{}***", &value[..4])
+    let prefix: String = value.chars().take(4).collect();
+    format!("{}***", prefix)
+}
+
+#[cfg(test)]
+mod mask_tests {
+    use super::mask_secret;
+
+    #[test]
+    fn mask_secret_returns_stars_for_short_ascii() {
+        assert_eq!(mask_secret("abc"), "***");
+        assert_eq!(mask_secret("12345678"), "***");
+    }
+
+    #[test]
+    fn mask_secret_shows_first_four_chars_for_long_ascii() {
+        assert_eq!(mask_secret("abcdefghij"), "abcd***");
+        assert_eq!(mask_secret("sk-ant-api-12345-abcdef"), "sk-a***");
+    }
+
+    #[test]
+    fn mask_secret_counts_chars_not_bytes_for_short_non_ascii() {
+        assert_eq!(mask_secret("🔐🔑"), "***");
+        assert_eq!(mask_secret("한글한글"), "***");
+    }
+
+    #[test]
+    fn mask_secret_does_not_panic_on_long_non_ascii() {
+        let value = "🔐🔑🔐🔑🔐🔑🔐🔑🔐🔑";
+        let result = mask_secret(value);
+        assert!(result.ends_with("***"));
+        assert!(result.starts_with("🔐"));
+    }
 }

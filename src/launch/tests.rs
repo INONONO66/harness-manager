@@ -1,4 +1,6 @@
+use super::effective_profile_name;
 use super::target::{build_launch_env, resolve_target, runtime_isolation_plan, LaunchTarget};
+use crate::config::HmConfig;
 use crate::harnesses::registry::HarnessRegistry;
 use crate::isolation;
 use crate::runtimes::registry::RuntimeRegistry;
@@ -179,4 +181,50 @@ fn resolve_target_accepts_plugin_registry_entries() {
         }
         _ => panic!("expected Harness"),
     }
+}
+
+fn config_with_default(default: Option<&str>) -> HmConfig {
+    HmConfig {
+        default_profile: default.map(String::from),
+        ..HmConfig::default()
+    }
+}
+
+#[test]
+fn effective_profile_name_uses_explicit_arg_when_provided() {
+    let cfg = config_with_default(Some("default-from-config"));
+    assert_eq!(
+        effective_profile_name(Some("explicit"), &cfg),
+        Some("explicit".to_string()),
+        "explicit --profile must override default_profile"
+    );
+}
+
+#[test]
+fn effective_profile_name_falls_back_to_default_profile_when_arg_is_none() {
+    let cfg = config_with_default(Some("proxy"));
+    assert_eq!(
+        effective_profile_name(None, &cfg),
+        Some("proxy".to_string()),
+        "default_profile must apply when no --profile passed"
+    );
+}
+
+#[test]
+fn effective_profile_name_is_none_when_arg_and_default_are_unset() {
+    let cfg = config_with_default(None);
+    assert_eq!(
+        effective_profile_name(None, &cfg),
+        None,
+        "no profile must remain no-profile when neither arg nor default is set"
+    );
+}
+
+#[test]
+fn effective_profile_name_explicit_wins_when_default_unset() {
+    let cfg = config_with_default(None);
+    assert_eq!(
+        effective_profile_name(Some("explicit"), &cfg),
+        Some("explicit".to_string()),
+    );
 }

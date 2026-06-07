@@ -6,7 +6,7 @@ use std::process::Command;
 use anyhow::bail;
 use colored::Colorize;
 
-use crate::config::{self, ResolvedProfile};
+use crate::config::{self, HmConfig, ResolvedProfile};
 use crate::harnesses::registry::HarnessRegistry;
 use crate::harnesses::types::PackageSpec;
 use crate::isolation;
@@ -25,9 +25,14 @@ pub struct UseEnvAssembly {
     pub display_name: String,
     pub seeded_path: Option<PathBuf>,
     pub launch_args: Vec<String>,
-    pub profile_applied: bool,
+    pub profile_applied: Option<String>,
     pub isolation_present: bool,
     pub binary_override: Option<PathBuf>,
+}
+
+pub fn effective_profile_name(arg: Option<&str>, hm_config: &HmConfig) -> Option<String> {
+    arg.map(str::to_string)
+        .or_else(|| hm_config.default_profile.clone())
 }
 
 pub fn assemble_use_env(
@@ -96,14 +101,15 @@ pub fn assemble_use_env(
 
     let iso_paths = iso_setup.as_ref().map(|(_, paths, _)| paths.clone());
 
-    let (profile_applied, seeded_path) = if let Some(profile_arg) = profile_name {
-        let hm_config = config::load_config()?;
-        let resolved = config::resolve_profile(&hm_config, Some(profile_arg))?;
-        let seeded = apply_profile(&resolved, runtime, &mut env, iso_paths.as_ref())?;
-        apply_proxy_env(&resolved, &mut env);
-        (Some(resolved.name.clone()), seeded)
-    } else {
-        (None, None)
+    let hm_config = config::load_config()?;
+    let (profile_applied, seeded_path) = match effective_profile_name(profile_name, &hm_config) {
+        Some(name) => {
+            let resolved = config::resolve_profile(&hm_config, Some(&name))?;
+            let seeded = apply_profile(&resolved, runtime, &mut env, iso_paths.as_ref())?;
+            apply_proxy_env(&resolved, &mut env);
+            (Some(resolved.name.clone()), seeded)
+        }
+        None => (None, None),
     };
 
     let binary_override = if npm_isolated_harness {
@@ -138,7 +144,7 @@ pub fn assemble_use_env(
         display_name,
         seeded_path,
         launch_args,
-        profile_applied: profile_applied.is_some(),
+        profile_applied,
         isolation_present: iso_setup.is_some(),
         binary_override,
     })
@@ -194,12 +200,12 @@ pub fn run_use(
     )?;
 
     if !print_env {
-        if assembly.profile_applied {
+        if let Some(ref applied_name) = assembly.profile_applied {
             eprintln!(
                 "{} {} with profile '{}'",
                 "Launching".green().bold(),
                 assembly.display_name.bold(),
-                profile_name.unwrap_or("").cyan()
+                applied_name.cyan()
             );
         } else {
             let suffix = if assembly.isolation_present {

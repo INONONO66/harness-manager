@@ -255,10 +255,20 @@ fn print_proxy_plan(resolved: &config::ResolvedProfile) {
 }
 
 fn mask_value(val: &str) -> String {
-    if val.len() <= 8 {
+    let chars: Vec<char> = val.chars().collect();
+    if chars.len() <= 8 {
         return "***".to_string();
     }
-    format!("{}...{}", &val[..4], &val[val.len() - 4..])
+    let prefix: String = chars.iter().take(4).collect();
+    let suffix: String = chars
+        .iter()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    format!("{prefix}...{suffix}")
 }
 
 #[cfg(test)]
