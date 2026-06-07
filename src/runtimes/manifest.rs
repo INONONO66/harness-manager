@@ -73,6 +73,10 @@ pub enum AuthProbeRecord {
         file_name: String,
         label: String,
     },
+    ProviderAuthFile {
+        relative_path: String,
+        label: String,
+    },
     CodexAuthFile {
         relative_path: String,
         oauth_label: String,
@@ -211,6 +215,10 @@ enum AuthProbeManifest {
     DataDirJsonFile {
         data_subdir: String,
         file_name: String,
+        label: String,
+    },
+    ProviderAuthFile {
+        relative_path: String,
         label: String,
     },
     KeychainHeuristic {
@@ -483,6 +491,17 @@ fn convert_auth_probe(path_label: &str, probe: AuthProbeManifest) -> Result<Auth
             Ok(AuthProbeRecord::DataDirJsonFile {
                 data_subdir,
                 file_name,
+                label,
+            })
+        }
+        AuthProbeManifest::ProviderAuthFile {
+            relative_path,
+            label,
+        } => {
+            validate_relative_path(path_label, "auth_probes.relative_path", &relative_path)?;
+            ensure(!label.is_empty(), path_label, "auth_probes.label")?;
+            Ok(AuthProbeRecord::ProviderAuthFile {
+                relative_path,
                 label,
             })
         }

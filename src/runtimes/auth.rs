@@ -43,6 +43,11 @@ fn run_probe(probe: &AuthProbeRecord, config_dir: Option<&Path>) -> AuthStatus {
         } => {
             probe_data_dir_json(data_subdir, file_name, label).unwrap_or(AuthStatus::NotConfigured)
         }
+        AuthProbeRecord::ProviderAuthFile {
+            relative_path,
+            label,
+        } => probe_provider_auth_file(config_dir, relative_path, label)
+            .unwrap_or(AuthStatus::NotConfigured),
         AuthProbeRecord::KeychainHeuristic {
             marker_file,
             keychain_service,
@@ -192,16 +197,51 @@ fn probe_data_dir_json_at(file: &Path, label: &str) -> Option<AuthStatus> {
     let content = std::fs::read_to_string(file).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
     let object = json.as_object()?;
-    let meaningful_count = object
+    let valid_count = object
         .values()
-        .filter(|v| is_meaningful_json_value(v))
+        .filter(|v| is_valid_provider_credential(v))
         .count();
-    if meaningful_count == 0 {
+    if valid_count == 0 {
         return None;
     }
     Some(AuthStatus::Valid {
-        detail: format!("{} ({} providers)", label, meaningful_count),
+        detail: format!("{} ({} providers)", label, valid_count),
     })
+}
+
+fn probe_provider_auth_file(
+    config_dir: Option<&Path>,
+    relative_path: &str,
+    label: &str,
+) -> Option<AuthStatus> {
+    let dir = config_dir?;
+    let file = dir.join(relative_path);
+    probe_data_dir_json_at(&file, label)
+}
+
+fn is_valid_provider_credential(value: &serde_json::Value) -> bool {
+    let Some(obj) = value.as_object() else {
+        return false;
+    };
+    let Some(type_str) = obj.get("type").and_then(|v| v.as_str()) else {
+        return false;
+    };
+    let non_empty = |key: &str| -> bool {
+        obj.get(key)
+            .and_then(|v| v.as_str())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
+    };
+    match type_str {
+        "api" | "api_key" => non_empty("key"),
+        "oauth" => {
+            non_empty("access")
+                && non_empty("refresh")
+                && obj.get("expires").map(|v| v.is_number()).unwrap_or(false)
+        }
+        "wellknown" => non_empty("key") && non_empty("token"),
+        _ => false,
+    }
 }
 
 fn resolve_data_file(data_subdir: &str, file_name: &str) -> Option<std::path::PathBuf> {
@@ -1172,10 +1212,10 @@ mod data_dir_json_tests {
     }
 
     #[test]
-    fn data_dir_one_real_among_nulls_counts_only_meaningful() {
+    fn data_dir_one_valid_api_credential_among_nulls() {
         let file = write_provider_file(
             "mixed",
-            r#"{"openai": null, "anthropic": {"type": "api", "key": "real"}, "google": null}"#,
+            r#"{"openai": null, "anthropic": {"type": "api", "key": "sk-real"}, "google": null}"#,
         );
         let result = probe_data_dir_json_at(&file, "Provider auth");
         let _ = std::fs::remove_dir_all(file.parent().unwrap());
@@ -1183,7 +1223,7 @@ mod data_dir_json_tests {
             Some(AuthStatus::Valid { detail }) => {
                 assert!(
                     detail.contains("(1 providers)"),
-                    "expected '(1 providers)' counting only meaningful entries, got: {detail}"
+                    "expected '(1 providers)' counting only valid credential entries, got: {detail}"
                 );
             }
             other => panic!("expected Valid with count, got {other:?}"),
@@ -1191,10 +1231,10 @@ mod data_dir_json_tests {
     }
 
     #[test]
-    fn data_dir_multiple_real_providers_counted() {
+    fn data_dir_multiple_valid_credentials_counted() {
         let file = write_provider_file(
             "two-real",
-            r#"{"openai": {"key": "k1"}, "anthropic": {"key": "k2"}, "stale": null}"#,
+            r#"{"openai": {"type": "api", "key": "sk-1"}, "anthropic": {"type": "api_key", "key": "sk-2"}, "stale": null}"#,
         );
         let result = probe_data_dir_json_at(&file, "Provider auth");
         let _ = std::fs::remove_dir_all(file.parent().unwrap());
@@ -1202,11 +1242,114 @@ mod data_dir_json_tests {
             Some(AuthStatus::Valid { detail }) => {
                 assert!(
                     detail.contains("(2 providers)"),
-                    "expected '(2 providers)' from 2 real and 1 null, got: {detail}"
+                    "expected '(2 providers)' from 2 valid credentials + 1 null, got: {detail}"
                 );
             }
             other => panic!("expected Valid with count, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn data_dir_oauth_credential_with_all_fields_counts() {
+        let file = write_provider_file(
+            "oauth",
+            r#"{"anthropic": {"type": "oauth", "access": "a", "refresh": "r", "expires": 12345}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(matches!(result, Some(AuthStatus::Valid { .. })));
+    }
+
+    #[test]
+    fn data_dir_wellknown_credential_counts() {
+        let file = write_provider_file(
+            "wellknown",
+            r#"{"copilot": {"type": "wellknown", "key": "k", "token": "t"}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(matches!(result, Some(AuthStatus::Valid { .. })));
+    }
+
+    #[test]
+    fn data_dir_credential_without_type_field_returns_none() {
+        let file = write_provider_file(
+            "no-type",
+            r#"{"openai": {"key": "k1"}, "anthropic": {"key": "k2"}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(
+            result.is_none(),
+            "untyped credential records (no 'type' field) must NOT count as valid; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn data_dir_api_credential_with_empty_key_returns_none() {
+        let file =
+            write_provider_file("api-empty-key", r#"{"openai": {"type": "api", "key": ""}}"#);
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(result.is_none(), "got {result:?}");
+    }
+
+    #[test]
+    fn data_dir_api_credential_missing_key_returns_none() {
+        let file = write_provider_file("api-no-key", r#"{"openai": {"type": "api"}}"#);
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(
+            result.is_none(),
+            "type='api' missing 'key' must not count: got {result:?}"
+        );
+    }
+
+    #[test]
+    fn data_dir_oauth_credential_missing_refresh_returns_none() {
+        let file = write_provider_file(
+            "oauth-no-refresh",
+            r#"{"anthropic": {"type": "oauth", "access": "a", "expires": 1}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn data_dir_oauth_credential_missing_expires_returns_none() {
+        let file = write_provider_file(
+            "oauth-no-expires",
+            r#"{"anthropic": {"type": "oauth", "access": "a", "refresh": "r"}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn data_dir_oauth_credential_non_numeric_expires_returns_none() {
+        let file = write_provider_file(
+            "oauth-string-expires",
+            r#"{"anthropic": {"type": "oauth", "access": "a", "refresh": "r", "expires": "soon"}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(
+            result.is_none(),
+            "non-numeric expires must reject oauth credential: got {result:?}"
+        );
+    }
+
+    #[test]
+    fn data_dir_unknown_credential_type_returns_none() {
+        let file = write_provider_file(
+            "unknown-type",
+            r#"{"openai": {"type": "magic-future-mode", "key": "k"}}"#,
+        );
+        let result = probe_data_dir_json_at(&file, "Provider auth");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+        assert!(result.is_none());
     }
 
     #[test]
@@ -1223,6 +1366,111 @@ mod data_dir_json_tests {
         let result = probe_data_dir_json_at(&file, "Provider auth");
         let _ = std::fs::remove_dir_all(file.parent().unwrap());
         assert!(result.is_none());
+    }
+}
+
+#[cfg(test)]
+mod provider_auth_file_tests {
+    use super::{probe_provider_auth_file, AuthStatus};
+    use std::path::PathBuf;
+
+    fn write_pi_auth(label: &str, body: &str) -> PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let dir = std::env::temp_dir().join(format!(
+            "hm-pi-auth-test-{label}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("auth.json"), body).unwrap();
+        dir
+    }
+
+    #[test]
+    fn pi_api_key_credential_returns_valid() {
+        let dir = write_pi_auth(
+            "api-key",
+            r#"{"anthropic": {"type": "api_key", "key": "sk-ant-real"}}"#,
+        );
+        let result = probe_provider_auth_file(Some(&dir), "auth.json", "Provider auth");
+        let _ = std::fs::remove_dir_all(&dir);
+        match result {
+            Some(AuthStatus::Valid { detail }) => assert!(detail.contains("(1 providers)")),
+            other => panic!("got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pi_oauth_credential_returns_valid() {
+        let dir = write_pi_auth(
+            "oauth",
+            r#"{"google": {"type": "oauth", "access": "a", "refresh": "r", "expires": 12345}}"#,
+        );
+        let result = probe_provider_auth_file(Some(&dir), "auth.json", "Provider auth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(matches!(result, Some(AuthStatus::Valid { .. })));
+    }
+
+    #[test]
+    fn pi_arbitrary_non_empty_json_returns_none() {
+        let dir = write_pi_auth("garbage", r#"{"foo": "bar", "baz": 42}"#);
+        let result = probe_provider_auth_file(Some(&dir), "auth.json", "Provider auth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            result.is_none(),
+            "arbitrary key/value pairs without credential-shape values must NOT report Valid; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn pi_incomplete_oauth_credential_returns_none() {
+        let dir = write_pi_auth("incomplete-oauth", r#"{"anthropic": {"type": "oauth"}}"#);
+        let result = probe_provider_auth_file(Some(&dir), "auth.json", "Provider auth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn pi_empty_object_returns_none() {
+        let dir = write_pi_auth("empty", "{}");
+        let result = probe_provider_auth_file(Some(&dir), "auth.json", "Provider auth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn pi_missing_file_returns_none() {
+        let dir = std::env::temp_dir().join(format!("hm-pi-auth-missing-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let result = probe_provider_auth_file(Some(&dir), "auth.json", "Provider auth");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn pi_no_config_dir_returns_none() {
+        let result = probe_provider_auth_file(None, "auth.json", "Provider auth");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn pi_mixed_valid_and_garbage_counts_only_valid() {
+        let dir = write_pi_auth(
+            "mixed",
+            r#"{"good1": {"type": "api_key", "key": "sk-1"}, "bad": {"foo": "bar"}, "good2": {"type": "api_key", "key": "sk-2"}}"#,
+        );
+        let result = probe_provider_auth_file(Some(&dir), "auth.json", "Provider auth");
+        let _ = std::fs::remove_dir_all(&dir);
+        match result {
+            Some(AuthStatus::Valid { detail }) => assert!(
+                detail.contains("(2 providers)"),
+                "expected (2 providers) counting only credential-shape entries, got {detail}"
+            ),
+            other => panic!("got {other:?}"),
+        }
     }
 }
 
