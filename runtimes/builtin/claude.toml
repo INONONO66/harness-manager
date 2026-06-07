@@ -18,6 +18,7 @@ label = "OAuth"
 [[auth_probes]]
 kind = "keychain-heuristic"
 marker_file = "settings.json"
+keychain_service = "Claude Code-credentials"
 label = "OAuth (macOS Keychain)"
 
 [[auth_probes]]
