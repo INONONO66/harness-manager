@@ -81,6 +81,17 @@ pub fn assemble_use_env(
         }
     };
 
+    // Ordering contract (do not reorder): profile resolution MUST come
+    // before isolation setup. A broken ~/.config/hm/config.toml (parse
+    // failure, missing secret file, unknown profile name, etc.) then
+    // fails closed without creating isolation directories, lock files,
+    // or seed files on disk.
+    let hm_config = config::load_config()?;
+    let resolved_profile = match effective_profile_name(profile_name, &hm_config) {
+        Some(name) => Some(config::resolve_profile(&hm_config, Some(&name))?),
+        None => None,
+    };
+
     let iso_setup = if let Some(iso) = effective_isolation {
         let paths = isolation::IsolationPaths::try_from_spec(&iso)?;
         let lock = isolation::IsolationLockGuard::acquire(&paths)?;
@@ -101,10 +112,8 @@ pub fn assemble_use_env(
 
     let iso_paths = iso_setup.as_ref().map(|(_, paths, _)| paths.clone());
 
-    let hm_config = config::load_config()?;
-    let (profile_applied, seeded_path) = match effective_profile_name(profile_name, &hm_config) {
-        Some(name) => {
-            let resolved = config::resolve_profile(&hm_config, Some(&name))?;
+    let (profile_applied, seeded_path) = match resolved_profile {
+        Some(resolved) => {
             let seeded = apply_profile(&resolved, runtime, &mut env, iso_paths.as_ref())?;
             apply_proxy_env(&resolved, &mut env);
             (Some(resolved.name.clone()), seeded)
