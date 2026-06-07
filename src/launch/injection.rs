@@ -38,10 +38,6 @@ pub fn apply_env_strategy(
     resolved: &ResolvedProfile,
     env: &mut HashMap<String, String>,
 ) -> Result<()> {
-    for key in &spec.strip_envs {
-        env.remove(key);
-    }
-
     if let Some(gateway) = resolved.gateway.as_ref() {
         if !gateway.providers.iter().any(|p| p == &spec.provider) {
             anyhow::bail!(
@@ -68,6 +64,10 @@ pub fn apply_env_strategy(
             .endpoint_strip_v1_override
             .unwrap_or(spec.endpoint_strip_v1);
         let endpoint = effective_endpoint(&gateway.base_url, effective_strip);
+
+        for key in &spec.strip_envs {
+            env.remove(key);
+        }
         env.insert(spec.endpoint_env.clone(), endpoint);
         env.insert(spec.api_key_env.clone(), bearer.to_string());
         return Ok(());
@@ -75,6 +75,10 @@ pub fn apply_env_strategy(
 
     if let Some(bearer) = resolved.bearer.as_deref() {
         validate_bearer_value_at_runtime(bearer)?;
+    }
+
+    for key in &spec.strip_envs {
+        env.remove(key);
     }
     if let Some(endpoint) = resolved.endpoint.as_deref() {
         let trimmed = effective_endpoint(endpoint, spec.endpoint_strip_v1);
@@ -465,6 +469,11 @@ fn validate_header_name_at_runtime(name: &str) -> Result<()> {
 }
 
 fn validate_bearer_value_at_runtime(value: &str) -> Result<()> {
+    if value.trim().is_empty() {
+        anyhow::bail!(
+            "bearer is empty or whitespace-only (set a real credential in [profiles.<name>.gateway].bearer or [profiles.<name>.llm].bearer)"
+        );
+    }
     if value
         .chars()
         .any(|ch| ch == '\r' || ch == '\n' || ch == '\0')
@@ -777,13 +786,15 @@ mod tests {
             err.to_string().contains("gateway.bearer"),
             "expected gateway.bearer required error: {err:#}"
         );
-        assert!(
-            !env.contains_key("ANTHROPIC_API_KEY"),
-            "missing bearer must not yield an unauthenticated launch; api_key_env was already stripped"
+        assert_eq!(
+            env.get("ANTHROPIC_API_KEY").map(String::as_str),
+            Some("host-key"),
+            "missing bearer must not strip host api_key_env (fail-closed)"
         );
-        assert!(
-            !env.contains_key("ANTHROPIC_BASE_URL"),
-            "endpoint must not be set without a bearer (no half-applied state)"
+        assert_eq!(
+            env.get("ANTHROPIC_BASE_URL").map(String::as_str),
+            Some("host-url"),
+            "missing bearer must not strip host endpoint env (fail-closed)"
         );
     }
 
@@ -838,6 +849,65 @@ mod tests {
             env.get("ANTHROPIC_BASE_URL").map(String::as_str),
             Some("https://gw.example/v1")
         );
+    }
+
+    #[test]
+    fn env_strategy_rejects_empty_gateway_bearer_before_any_env_mutation() {
+        let mut env: HashMap<String, String> = HashMap::new();
+        env.insert("ANTHROPIC_API_KEY".to_string(), "host-key".to_string());
+        env.insert("ANTHROPIC_BASE_URL".to_string(), "host-url".to_string());
+        let resolved = proxy_profile_with_gateway(vec!["anthropic"], "");
+
+        let err = apply_env_strategy(&claude_env_injection(), &resolved, &mut env).unwrap_err();
+
+        assert!(
+            err.to_string().contains("bearer is empty or whitespace"),
+            "expected empty-bearer rejection, got: {err:#}"
+        );
+        assert_eq!(
+            env.get("ANTHROPIC_API_KEY").map(String::as_str),
+            Some("host-key"),
+            "empty bearer must not strip host api_key_env"
+        );
+        assert_eq!(
+            env.get("ANTHROPIC_BASE_URL").map(String::as_str),
+            Some("host-url"),
+            "empty bearer must not strip host endpoint env"
+        );
+    }
+
+    #[test]
+    fn env_strategy_rejects_whitespace_only_gateway_bearer() {
+        let mut env: HashMap<String, String> = HashMap::new();
+        let resolved = proxy_profile_with_gateway(vec!["anthropic"], "   \t  ");
+
+        let err = apply_env_strategy(&claude_env_injection(), &resolved, &mut env).unwrap_err();
+
+        assert!(
+            err.to_string().contains("bearer is empty or whitespace"),
+            "expected whitespace-bearer rejection, got: {err:#}"
+        );
+        assert!(
+            !env.contains_key("ANTHROPIC_API_KEY"),
+            "whitespace bearer must not be inserted"
+        );
+    }
+
+    #[test]
+    fn env_strategy_rejects_empty_legacy_bearer() {
+        let mut env: HashMap<String, String> = HashMap::new();
+        let mut p = empty_profile("legacy");
+        p.endpoint = Some("https://llm.example/v1".to_string());
+        p.bearer = Some("".to_string());
+
+        let err = apply_env_strategy(&claude_env_injection(), &p, &mut env).unwrap_err();
+
+        assert!(
+            err.to_string().contains("bearer is empty or whitespace"),
+            "expected empty-bearer rejection on legacy path, got: {err:#}"
+        );
+        assert!(!env.contains_key("ANTHROPIC_API_KEY"));
+        assert!(!env.contains_key("ANTHROPIC_BASE_URL"));
     }
 
     #[test]
@@ -1048,6 +1118,41 @@ mod tests {
         assert_eq!(preview.source, ProviderConfigSeedSource::LegacyLlm);
         assert_eq!(preview.providers, vec!["openai".to_string()]);
         assert_eq!(preview.endpoint, "https://legacy.example/v1");
+    }
+
+    #[test]
+    fn provider_config_seed_rejects_empty_gateway_bearer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "");
+
+        let err =
+            apply_provider_config_seed_strategy(&opencode_seed_injection(), &resolved, tmp.path())
+                .unwrap_err();
+
+        assert!(
+            err.to_string().contains("bearer is empty or whitespace"),
+            "expected empty bearer rejection, got: {err:#}"
+        );
+        assert!(
+            !tmp.path().join(".config/opencode/opencode.json").exists(),
+            "seed file must not be written when bearer is empty"
+        );
+    }
+
+    #[test]
+    fn provider_config_seed_rejects_whitespace_legacy_bearer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut p = empty_profile("legacy");
+        p.endpoint = Some("https://legacy.example/v1".to_string());
+        p.bearer = Some("   \n  ".to_string());
+
+        let err = apply_provider_config_seed_strategy(&opencode_seed_injection(), &p, tmp.path())
+            .unwrap_err();
+
+        assert!(
+            err.to_string().contains("bearer is empty or whitespace"),
+            "expected whitespace bearer rejection, got: {err:#}"
+        );
     }
 
     #[test]
@@ -1362,6 +1467,61 @@ check_for_update_on_startup = false
         assert!(
             !tmp.path().join(".codex/config.toml").exists(),
             "no file should be written"
+        );
+        assert!(env.is_empty(), "no env mutation expected");
+    }
+
+    #[test]
+    fn codex_seed_rejects_empty_bearer_before_writing_file_or_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        let resolved = proxy_profile_with_gateway(vec!["openai"], "");
+        let mut env: HashMap<String, String> = HashMap::new();
+        env.insert("OPENAI_API_KEY".to_string(), "preserve-me".to_string());
+
+        let err = apply_codex_config_seed_strategy(
+            &codex_config_seed_injection(),
+            &resolved,
+            &mut env,
+            tmp.path(),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("bearer is empty or whitespace"),
+            "expected empty bearer rejection, got: {err:#}"
+        );
+        assert!(
+            !tmp.path().join(".codex/config.toml").exists(),
+            "file MUST NOT be written when bearer is empty"
+        );
+        assert_eq!(
+            env.get("OPENAI_API_KEY").map(String::as_str),
+            Some("preserve-me"),
+            "OPENAI_API_KEY must remain (strip did not execute)"
+        );
+        assert!(
+            !env.contains_key("CODEX_API_KEY"),
+            "CODEX_API_KEY must not be set with empty bearer"
+        );
+    }
+
+    #[test]
+    fn codex_seed_rejects_whitespace_bearer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let resolved = proxy_profile_with_gateway(vec!["openai"], " \t\n ");
+        let mut env: HashMap<String, String> = HashMap::new();
+
+        let err = apply_codex_config_seed_strategy(
+            &codex_config_seed_injection(),
+            &resolved,
+            &mut env,
+            tmp.path(),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("bearer is empty or whitespace"),
+            "expected whitespace bearer rejection, got: {err:#}"
         );
         assert!(env.is_empty(), "no env mutation expected");
     }
