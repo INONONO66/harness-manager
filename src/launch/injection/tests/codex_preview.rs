@@ -40,12 +40,8 @@ fn codex_seed_legacy_llm_path_works_with_single_provider() {
         "expected legacy endpoint: {contents}"
     );
     assert!(
-        contents.contains(r#"model_provider = "hm-proxy-openai""#),
+        contents.contains(r#"model_provider = "openai""#),
         "expected model_provider: {contents}"
-    );
-    assert!(
-        contents.contains(r#"supports_websockets = false"#),
-        "custom provider must disable Codex WebSocket transport: {contents}"
     );
     assert_eq!(
         env.get("CODEX_API_KEY").map(String::as_str),
@@ -96,6 +92,6 @@ fn validate_codex_config_seed_reports_top_level_writes() {
     );
     assert_eq!(
         writes.get("model_provider").map(String::as_str),
-        Some("hm-proxy-openai")
+        Some("openai")
     );
 }

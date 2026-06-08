@@ -17,8 +17,8 @@ fn codex_seed_overwrites_existing_model_provider_key() {
 
     let contents = fs::read_to_string(&target).unwrap();
     assert!(
-        contents.contains(r#"model_provider = "hm-proxy-openai""#),
-        "model_provider must be overwritten to hm proxy provider: {contents}"
+        contents.contains(r#"model_provider = "openai""#),
+        "model_provider must be overwritten to openai: {contents}"
     );
     assert!(
         !contents.contains(r#"model_provider = "anthropic""#),

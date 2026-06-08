@@ -77,10 +77,12 @@ pub fn validate_codex_config_seed(
         .unwrap_or(spec.endpoint_strip_v1);
     let endpoint = effective_endpoint(&base_url, effective_strip);
 
-    let provider_id = codex_effective_model_provider_id(spec);
     let top_level_writes = vec![
         (spec.openai_base_url_key.clone(), endpoint.clone()),
-        (spec.model_provider_key.clone(), provider_id.to_string()),
+        (
+            spec.model_provider_key.clone(),
+            spec.model_provider_value.clone(),
+        ),
     ];
 
     let config_path_display = spec.config_path.replace("{home}", "<isolation-home>");
@@ -130,16 +132,8 @@ pub fn apply_codex_config_seed_strategy(
         toml_edit::DocumentMut::new()
     };
 
-    let provider_id = codex_effective_model_provider_id(spec);
     doc[spec.openai_base_url_key.as_str()] = toml_edit::value(endpoint.as_str());
-    doc[spec.model_provider_key.as_str()] = toml_edit::value(provider_id);
-    if spec.model_provider_value == "openai" {
-        doc["model_providers"][provider_id]["name"] = toml_edit::value("OpenAI via hm proxy");
-        doc["model_providers"][provider_id]["base_url"] = toml_edit::value(endpoint.as_str());
-        doc["model_providers"][provider_id]["wire_api"] = toml_edit::value("responses");
-        doc["model_providers"][provider_id]["requires_openai_auth"] = toml_edit::value(true);
-        doc["model_providers"][provider_id]["supports_websockets"] = toml_edit::value(false);
-    }
+    doc[spec.model_provider_key.as_str()] = toml_edit::value(spec.model_provider_value.as_str());
 
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent)
@@ -213,11 +207,4 @@ fn apply_codex_env(
         env.remove(key);
     }
     env.insert(spec.api_key_env.clone(), bearer);
-}
-fn codex_effective_model_provider_id(spec: &CodexConfigSeedInjection) -> &str {
-    if spec.model_provider_value == "openai" {
-        "hm-proxy-openai"
-    } else {
-        spec.model_provider_value.as_str()
-    }
 }
