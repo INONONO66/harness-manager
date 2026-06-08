@@ -20,12 +20,8 @@ fn codex_seed_creates_minimal_config_toml_with_top_level_keys() {
         "missing openai_base_url top-level key: {contents}"
     );
     assert!(
-        contents.contains(r#"model_provider = "hm-proxy-openai""#),
+        contents.contains(r#"model_provider = "openai""#),
         "missing model_provider top-level key: {contents}"
-    );
-    assert!(
-        contents.contains(r#"supports_websockets = false"#),
-        "custom provider must disable Codex WebSocket transport: {contents}"
     );
 }
 
@@ -92,8 +88,7 @@ mcp_oauth_credentials_store = "file"
         r#"cli_auth_credentials_store = "file""#,
         r#"mcp_oauth_credentials_store = "file""#,
         r#"openai_base_url = "https://gw.example/v1""#,
-        r#"model_provider = "hm-proxy-openai""#,
-        r#"supports_websockets = false"#,
+        r#"model_provider = "openai""#,
     ] {
         assert!(
             contents.contains(key),
@@ -141,12 +136,8 @@ persistence = "save-all"
         "missing openai_base_url: {contents}"
     );
     assert!(
-        contents.contains(r#"model_provider = "hm-proxy-openai""#),
+        contents.contains(r#"model_provider = "openai""#),
         "missing model_provider: {contents}"
-    );
-    assert!(
-        contents.contains(r#"supports_websockets = false"#),
-        "custom provider must disable Codex WebSocket transport: {contents}"
     );
 }
 
