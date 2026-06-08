@@ -22,6 +22,7 @@ pub struct UseEnvAssembly {
     pub profile_applied: Option<String>,
     pub isolation_present: bool,
     pub binary_override: Option<PathBuf>,
+    pub isolated_binary_required: bool,
 }
 
 pub fn assemble_use_env(
@@ -71,6 +72,7 @@ pub fn assemble_use_env(
         profile_applied,
         isolation_present: iso_setup.is_some(),
         binary_override,
+        isolated_binary_required: selected.npm_isolated_harness,
     })
 }
 
