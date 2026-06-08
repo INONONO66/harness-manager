@@ -149,6 +149,12 @@ fn bundled_claude_harnesses_use_harness_local_runtime_home() {
         let envs: BTreeMap<_, _> = spec.isolation.static_envs.iter().cloned().collect();
         assert_eq!(spec.isolation.runtime_subdir, spec.isolation.subdir);
         assert_eq!(
+            spec.launch_binary.as_deref(),
+            spec.detect_binaries.first().map(String::as_str),
+            "{} must launch the isolated harness wrapper it detects",
+            spec.id
+        );
+        assert_eq!(
             envs.get("CLAUDE_CONFIG_DIR").map(String::as_str),
             Some("{home}/.claude")
         );

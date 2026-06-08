@@ -1,12 +1,91 @@
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 fn unique_suite(label: &str) -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or_default();
     format!("hm-launch-order-{label}-{}-{nanos}", std::process::id())
+}
+
+#[test]
+fn npm_isolated_harness_does_not_fall_back_to_host_path_binary() {
+    let suite = unique_suite("npm-isolated-no-host-fallback");
+    let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
+    let tmp_data = std::env::temp_dir().join(format!("{suite}-data"));
+    let tmp_home = std::env::temp_dir().join(format!("{suite}-home"));
+    let fake_bin = std::env::temp_dir().join(format!("{suite}-fake-bin"));
+    let marker = std::env::temp_dir().join(format!("{suite}-host-omx-ran"));
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+    let _ = std::fs::remove_dir_all(&fake_bin);
+    let _ = std::fs::remove_file(&marker);
+    std::fs::create_dir_all(tmp_cfg.join("hm")).unwrap();
+    std::fs::create_dir_all(&tmp_data).unwrap();
+    std::fs::create_dir_all(&tmp_home).unwrap();
+    std::fs::create_dir_all(&fake_bin).unwrap();
+    std::fs::write(
+        tmp_cfg.join("hm/config.toml"),
+        "default_profile = \"qa\"\n[profiles.qa.gateway]\nbase_url = \"http://127.0.0.1:9/v1\"\nbearer = \"qa-token\"\nproviders = [\"openai\"]\n",
+    )
+    .unwrap();
+    let fake_omx = fake_bin.join("omx");
+    std::fs::write(
+        &fake_omx,
+        format!("#!/bin/sh\nprintf ran > '{}'\nexit 42\n", marker.display()),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        let mut permissions = std::fs::metadata(&fake_omx).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&fake_omx, permissions).unwrap();
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_hm"))
+        .args(["use", "omx", "--profile", "qa", "--", "--sentinel"])
+        .env("XDG_CONFIG_HOME", &tmp_cfg)
+        .env("XDG_DATA_HOME", &tmp_data)
+        .env("HOME", &tmp_home)
+        .env(
+            "PATH",
+            format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", fake_bin.display()),
+        )
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("OPENAI_BASE_URL")
+        .env_remove("CODEX_API_KEY")
+        .env_remove("CODEX_ACCESS_TOKEN")
+        .output()
+        .expect("spawn hm");
+
+    let exit_code = output.status.code();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let marker_exists = marker.exists();
+
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+    let _ = std::fs::remove_dir_all(&fake_bin);
+    let _ = std::fs::remove_file(&marker);
+
+    assert_ne!(
+        exit_code,
+        Some(42),
+        "hm must not exec host PATH omx for npm-isolated harnesses; stderr was: {stderr}"
+    );
+    assert!(
+        !marker_exists,
+        "host PATH omx was executed, so npm-isolated launch escaped isolation"
+    );
+    assert!(
+        stderr.contains("hm harness install omx") || stderr.contains("isolated"),
+        "expected install guidance for missing isolated omx; stderr was: {stderr}"
+    );
 }
 
 #[test]

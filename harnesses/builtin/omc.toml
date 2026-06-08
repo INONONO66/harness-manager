@@ -3,6 +3,7 @@ id = "omc"
 display_name = "oh-my-claudecode"
 target_runtime = "Claude Code"
 detect_binaries = ["omc"]
+launch_binary = "omc"
 
 [package]
 kind = "npm-isolated"

@@ -89,6 +89,16 @@ fn print_seeded_path(assembly: &UseEnvAssembly) {
 fn exec_assembly(assembly: &UseEnvAssembly, extra_args: &[String]) -> anyhow::Result<()> {
     let binary = if let Some(override_path) = assembly.binary_override.as_ref() {
         override_path.clone()
+    } else if assembly.isolated_binary_required {
+        bail!(
+            "{} isolated binary is not installed. Run `hm harness install {}` before launch.",
+            assembly.display_name,
+            assembly
+                .binary_names
+                .first()
+                .map(String::as_str)
+                .unwrap_or("this harness")
+        );
     } else {
         let binary_name_refs: Vec<&str> =
             assembly.binary_names.iter().map(String::as_str).collect();
