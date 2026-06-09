@@ -7,7 +7,7 @@ launch_binary = "ouroboros"
 
 [package]
 kind = "python-tool"
-package = "ouroboros-ai"
+package = "ouroboros-ai[claude]"
 
 [isolation]
 subdir = "ouroboros"

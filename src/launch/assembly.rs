@@ -56,8 +56,8 @@ pub fn assemble_use_env(
         None => (None, None),
     };
 
-    let binary_override = npm_binary_override(
-        selected.npm_isolated_harness,
+    let binary_override = isolated_package_binary_override(
+        selected.isolated_package_binary_path,
         &iso_paths,
         &mut env,
         &selected.binary_names,
@@ -72,8 +72,14 @@ pub fn assemble_use_env(
         profile_applied,
         isolation_present: iso_setup.is_some(),
         binary_override,
-        isolated_binary_required: selected.npm_isolated_harness,
+        isolated_binary_required: selected.isolated_package_binary_path.is_some(),
     })
+}
+
+#[derive(Clone, Copy)]
+enum IsolatedPackageBinaryPath {
+    Npm,
+    PythonTool,
 }
 
 struct SelectedTarget<'a> {
@@ -82,18 +88,24 @@ struct SelectedTarget<'a> {
     binary_names: Vec<String>,
     display_name: String,
     launch_args: Vec<String>,
-    npm_isolated_harness: bool,
+    isolated_package_binary_path: Option<IsolatedPackageBinaryPath>,
 }
 
 fn select_target<'a>(
     target: LaunchTarget<'a>,
     allow_keychain: bool,
 ) -> anyhow::Result<SelectedTarget<'a>> {
-    let npm_isolated_harness = matches!(
-        &target,
-        LaunchTarget::Harness { harness, .. }
-            if matches!(&harness.package, PackageSpec::NpmIsolated { .. })
-    );
+    let isolated_package_binary_path = match &target {
+        LaunchTarget::Harness { harness, .. } => match &harness.package {
+            PackageSpec::NpmIsolated { .. } => Some(IsolatedPackageBinaryPath::Npm),
+            PackageSpec::PythonTool { .. } => Some(IsolatedPackageBinaryPath::PythonTool),
+            PackageSpec::NpmGlobal { .. }
+            | PackageSpec::NpxInstaller { .. }
+            | PackageSpec::BunxInstaller { .. }
+            | PackageSpec::Manual { .. } => None,
+        },
+        LaunchTarget::Runtime(_) => None,
+    };
 
     match target {
         LaunchTarget::Runtime(rt) => Ok(SelectedTarget {
@@ -102,7 +114,7 @@ fn select_target<'a>(
             binary_names: rt.binary_names.clone(),
             display_name: rt.name.clone(),
             launch_args: Vec::new(),
-            npm_isolated_harness,
+            isolated_package_binary_path,
         }),
         LaunchTarget::Harness { harness, runtime } => {
             if allow_keychain {
@@ -118,7 +130,7 @@ fn select_target<'a>(
                 binary_names,
                 display_name: format!("{} ({})", harness.display_name, runtime.name),
                 launch_args: harness.launch_args.clone(),
-                npm_isolated_harness,
+                isolated_package_binary_path,
             })
         }
     }
@@ -155,17 +167,23 @@ fn prepare_isolation(
     Ok(Some((iso, paths, lock)))
 }
 
-fn npm_binary_override(
-    enabled: bool,
+fn isolated_package_binary_override(
+    kind: Option<IsolatedPackageBinaryPath>,
     iso_paths: &Option<isolation::IsolationPaths>,
     env: &mut HashMap<String, String>,
     binary_names: &[String],
 ) -> Option<PathBuf> {
-    if !enabled {
-        return None;
-    }
+    let kind = kind?;
     let paths = iso_paths.as_ref()?;
-    let bin_dir = paths.home.join(".npm").join("bin");
+    let bin_dir = match kind {
+        IsolatedPackageBinaryPath::Npm => paths.home.join(".npm").join("bin"),
+        IsolatedPackageBinaryPath::PythonTool => paths.home.join(".local").join("bin"),
+    };
+    prepend_path(env, &bin_dir);
+    existing_first_binary(&bin_dir, binary_names)
+}
+
+fn prepend_path(env: &mut HashMap<String, String>, bin_dir: &std::path::Path) {
     let bin_dir_str = bin_dir.to_string_lossy().to_string();
     let current_path = env.get("PATH").cloned().unwrap_or_default();
     let new_path = if current_path.is_empty() {
@@ -174,8 +192,53 @@ fn npm_binary_override(
         format!("{bin_dir_str}:{current_path}")
     };
     env.insert("PATH".to_string(), new_path);
+}
+
+fn existing_first_binary(bin_dir: &std::path::Path, binary_names: &[String]) -> Option<PathBuf> {
     binary_names.first().and_then(|first_bin| {
         let candidate = bin_dir.join(first_bin);
         candidate.exists().then_some(candidate)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[test]
+    fn python_tool_binary_override_adds_isolated_local_bin() {
+        let tmp = tempdir().expect("tempdir");
+        let home = tmp.path().join("home");
+        let bin_dir = home.join(".local").join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("create bin dir");
+        let binary = bin_dir.join("python-tool-bin");
+        std::fs::write(&binary, "#!/bin/sh\n").expect("write binary");
+
+        let iso_paths = Some(isolation::IsolationPaths {
+            base: tmp.path().join("base"),
+            home,
+            state: tmp.path().join("state"),
+            tmp: tmp.path().join("tmp"),
+            runtime_base: tmp.path().join("runtime-base"),
+            runtime_home: tmp.path().join("runtime-home"),
+            runtime_state: tmp.path().join("runtime-state"),
+            runtime_logs: tmp.path().join("runtime-logs"),
+        });
+        let mut env = HashMap::from([("PATH".to_string(), "/usr/bin".to_string())]);
+
+        let override_path = isolated_package_binary_override(
+            Some(IsolatedPackageBinaryPath::PythonTool),
+            &iso_paths,
+            &mut env,
+            &["python-tool-bin".to_string()],
+        );
+
+        assert_eq!(override_path, Some(binary));
+        assert_eq!(
+            env.get("PATH").expect("PATH"),
+            &format!("{}:/usr/bin", bin_dir.to_string_lossy())
+        );
+    }
 }
