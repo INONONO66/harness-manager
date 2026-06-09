@@ -62,14 +62,23 @@ fn package_cache_installed_at(home: &Path, package: &PackageSpec) -> Option<Path
             None
         }
         PackageSpec::BunxInstaller { package, .. } => {
-            let cache_root = home.join(".bun").join("install").join("cache");
-            let entries = std::fs::read_dir(&cache_root).ok()?;
             let versioned_prefix = format!("{package}@");
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if name_str == *package || name_str.starts_with(&versioned_prefix) {
-                    return Some(entry.path());
+            for cache_root in [
+                home.join(".bun").join("install").join("cache"),
+                home.join(".cache")
+                    .join(".bun")
+                    .join("install")
+                    .join("cache"),
+            ] {
+                let Ok(entries) = std::fs::read_dir(cache_root) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name_str = name.to_string_lossy();
+                    if name_str == *package || name_str.starts_with(&versioned_prefix) {
+                        return Some(entry.path());
+                    }
                 }
             }
             None
@@ -606,6 +615,30 @@ seed_files = []
         };
         let result = package_cache_installed_at(tmp.path(), &spec);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn package_cache_installed_at_finds_bunx_xdg_cache_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = "test-only-bunx-pkg";
+        let entry = tmp
+            .path()
+            .join(".cache")
+            .join(".bun")
+            .join("install")
+            .join("cache")
+            .join(format!("{pkg}@2.0.1@@@1"));
+        std::fs::create_dir_all(&entry).unwrap();
+
+        let spec = PackageSpec::BunxInstaller {
+            package: pkg.to_string(),
+            args: Vec::new(),
+        };
+        let result = package_cache_installed_at(tmp.path(), &spec);
+
+        assert!(result
+            .expect("bunx XDG cache lookup hit")
+            .ends_with(format!(".cache/.bun/install/cache/{pkg}@2.0.1@@@1")));
     }
 
     #[test]
