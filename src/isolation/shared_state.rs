@@ -7,48 +7,78 @@ use super::paths::{create_private_dir_all, ensure_under_base, reject_existing_sy
 use super::IsolationPaths;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DatabaseSharePolicy {
+enum SharedStatePolicy {
     Codex,
+    Claude,
     OpenCode,
+    Pi,
 }
 
-impl DatabaseSharePolicy {
+impl SharedStatePolicy {
     fn from_runtime_name(runtime_name: &str) -> Option<Self> {
         match runtime_name {
             "Codex CLI" => Some(Self::Codex),
+            "Claude Code" => Some(Self::Claude),
             "OpenCode" => Some(Self::OpenCode),
+            "Pi" => Some(Self::Pi),
             _ => None,
         }
     }
 
-    fn dirs(self, main_home: &Path, paths: &IsolationPaths) -> (PathBuf, PathBuf) {
+    fn database_dirs(self, main_home: &Path, paths: &IsolationPaths) -> Option<(PathBuf, PathBuf)> {
         match self {
-            Self::Codex => (main_home.join(".codex"), paths.home.join(".codex")),
-            Self::OpenCode => (
+            Self::Codex => Some((main_home.join(".codex"), paths.home.join(".codex"))),
+            Self::OpenCode => Some((
                 main_home.join(".local/share/opencode"),
                 paths.home.join(".local/share/opencode"),
+            )),
+            Self::Claude | Self::Pi => None,
+        }
+    }
+
+    fn auth_file(self, main_home: &Path, paths: &IsolationPaths) -> (PathBuf, PathBuf) {
+        match self {
+            Self::Codex => (
+                main_home.join(".codex/auth.json"),
+                paths.home.join(".codex/auth.json"),
+            ),
+            Self::Claude => (
+                main_home.join(".claude/.credentials.json"),
+                paths.home.join(".claude/.credentials.json"),
+            ),
+            Self::OpenCode => (
+                main_home.join(".local/share/opencode/auth.json"),
+                paths.home.join(".local/share/opencode/auth.json"),
+            ),
+            Self::Pi => (
+                main_home.join(".pi/agent/auth.json"),
+                paths.home.join(".pi/agent/auth.json"),
             ),
         }
     }
 }
 
-pub fn link_main_runtime_databases(runtime_name: &str, paths: &IsolationPaths) -> Result<()> {
+pub fn prepare_main_runtime_shared_state(runtime_name: &str, paths: &IsolationPaths) -> Result<()> {
     let Some(home) = dirs::home_dir() else {
         return Ok(());
     };
-    link_main_runtime_databases_from_home(runtime_name, paths, &home)
+    prepare_main_runtime_shared_state_from_home(runtime_name, paths, &home)
 }
 
-pub(crate) fn link_main_runtime_databases_from_home(
+pub(crate) fn prepare_main_runtime_shared_state_from_home(
     runtime_name: &str,
     paths: &IsolationPaths,
     main_home: &Path,
 ) -> Result<()> {
-    let Some(policy) = DatabaseSharePolicy::from_runtime_name(runtime_name) else {
+    let Some(policy) = SharedStatePolicy::from_runtime_name(runtime_name) else {
         return Ok(());
     };
-    let (source_dir, target_dir) = policy.dirs(main_home, paths);
-    link_database_tree(&source_dir, &target_dir, paths)
+    if let Some((source_dir, target_dir)) = policy.database_dirs(main_home, paths) {
+        link_database_tree(&source_dir, &target_dir, paths)?;
+    }
+    let (source, target) = policy.auth_file(main_home, paths);
+    link_shared_file(&source, &target, paths, "auth file")?;
+    Ok(())
 }
 
 fn link_database_tree(source_dir: &Path, target_dir: &Path, paths: &IsolationPaths) -> Result<()> {
@@ -85,18 +115,31 @@ fn link_database_tree_entries(
         let relative = source
             .strip_prefix(root_source_dir)
             .with_context(|| format!("resolve database path {}", source.display()))?;
-        link_database_file(&source, &target_dir.join(relative), paths)?;
+        link_shared_file(&source, &target_dir.join(relative), paths, "database file")?;
     }
     Ok(())
 }
 
-fn link_database_file(source: &Path, target: &Path, paths: &IsolationPaths) -> Result<()> {
-    ensure_under_base(target, &paths.home, "database link")?;
+fn link_shared_file(
+    source: &Path,
+    target: &Path,
+    paths: &IsolationPaths,
+    label: &str,
+) -> Result<()> {
+    if !source.exists() {
+        return Ok(());
+    }
+    let metadata =
+        fs::symlink_metadata(source).with_context(|| format!("inspect {}", source.display()))?;
+    if !metadata.is_file() {
+        return Ok(());
+    }
+    ensure_under_base(target, &paths.home, label)?;
     let parent = target
         .parent()
-        .with_context(|| format!("database link has no parent: {}", target.display()))?;
-    create_private_dir_all(parent, &paths.home, "database link parent")?;
-    reject_existing_symlink_chain(parent, &paths.home, "database link parent")?;
+        .with_context(|| format!("{label} has no parent: {}", target.display()))?;
+    create_private_dir_all(parent, &paths.home, label)?;
+    reject_existing_symlink_chain(parent, &paths.home, label)?;
     match fs::symlink_metadata(target) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             if fs::read_link(target).with_context(|| format!("read link {}", target.display()))?
@@ -104,18 +147,16 @@ fn link_database_file(source: &Path, target: &Path, paths: &IsolationPaths) -> R
             {
                 return Ok(());
             }
-            anyhow::bail!(
-                "database link {} points at a different file",
-                target.display()
-            );
+            anyhow::bail!("{} {} points at a different file", label, target.display(),);
         }
         Ok(_) => anyhow::bail!(
-            "database file {} already exists and is not a shared link",
-            target.display()
+            "{} {} already exists and is not a shared link",
+            label,
+            target.display(),
         ),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             create_file_symlink(source, target).with_context(|| {
-                format!("link database {} -> {}", target.display(), source.display())
+                format!("link {label} {} -> {}", target.display(), source.display())
             })?;
             Ok(())
         }

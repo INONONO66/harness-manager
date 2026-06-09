@@ -15,14 +15,11 @@ use std::os::unix::fs::PermissionsExt;
 
 use spec::IsolationRecipe;
 
-mod db_links;
 mod env;
 mod paths;
+mod shared_state;
 pub mod spec;
 
-pub use db_links::link_main_runtime_databases;
-#[cfg(test)]
-pub(crate) use db_links::link_main_runtime_databases_from_home;
 #[cfg(test)]
 pub use env::build_isolation_env;
 pub use env::{build_sanitized_isolation_env, GLOBAL_AI_STRIP};
@@ -31,6 +28,9 @@ use paths::{
     create_private_dir_all, create_private_isolation_base, ensure_under_base, isolation_root,
     reject_existing_symlink_chain, validate_relative_path,
 };
+pub use shared_state::prepare_main_runtime_shared_state;
+#[cfg(test)]
+pub(crate) use shared_state::prepare_main_runtime_shared_state_from_home;
 
 /// Resolve the `hm` data directory.
 ///
