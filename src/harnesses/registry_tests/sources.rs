@@ -159,6 +159,37 @@ fn registry_rejects_symlink_manifest_escape() {
 
 #[cfg(unix)]
 #[test]
+fn registry_rejects_symlink_plugin_manifest_escape() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let data_root = temp.path().join("data");
+    let plugins_dir = data_root.join("hm").join("plugins");
+    let outside_plugin = temp.path().join("outside-plugin");
+    fs::create_dir_all(&plugins_dir).unwrap();
+    fs::create_dir_all(&outside_plugin).unwrap();
+    fs::write(outside_plugin.join("harness.toml"), demo_manifest("escape")).unwrap();
+    symlink(&outside_plugin, plugins_dir.join("escape")).unwrap();
+
+    let runtimes = super::test_runtimes();
+    let err = HarnessRegistry::load_from_env(
+        &HarnessDiscoveryEnv {
+            xdg_config_home: Some(temp.path().join("config")),
+            xdg_data_home: Some(data_root),
+            home: Some(temp.path().join("home")),
+        },
+        &runtimes,
+    )
+    .unwrap_err();
+
+    assert!(
+        err.to_string().contains("symlink"),
+        "expected plugin symlink rejection, got: {err:#}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn registry_rejects_oversized_harness_manifest_before_reading_contents() {
     use std::os::unix::fs::PermissionsExt;
 

@@ -150,6 +150,53 @@ fn broken_default_profile_fails_without_creating_isolation_directories() {
 }
 
 #[test]
+fn use_without_profile_and_without_default_profile_launches_profileless() {
+    let suite = unique_suite("no-profile-no-default");
+    let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
+    let tmp_data = std::env::temp_dir().join(format!("{suite}-data"));
+    let tmp_home = std::env::temp_dir().join(format!("{suite}-home"));
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+    std::fs::create_dir_all(tmp_cfg.join("hm")).unwrap();
+    std::fs::create_dir_all(&tmp_data).unwrap();
+    std::fs::create_dir_all(&tmp_home).unwrap();
+    std::fs::write(tmp_cfg.join("hm/config.toml"), "").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_hm"))
+        .args(["use", "codex", "--print-env"])
+        .env("XDG_CONFIG_HOME", &tmp_cfg)
+        .env("XDG_DATA_HOME", &tmp_data)
+        .env("HOME", &tmp_home)
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("OPENAI_BASE_URL")
+        .env_remove("CODEX_API_KEY")
+        .env_remove("CODEX_ACCESS_TOKEN")
+        .output()
+        .expect("spawn hm");
+
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+
+    assert!(
+        output.status.success(),
+        "hm use should proceed profile-less when neither --profile nor default_profile is set; stderr was: {stderr}"
+    );
+    assert!(
+        stdout.contains("CODEX_HOME="),
+        "expected profile-less codex launch env, got stdout: {stdout}"
+    );
+    assert!(
+        !stderr.contains("no profile specified"),
+        "profile-less launch must not call explicit profile resolution: {stderr}"
+    );
+}
+
+#[test]
 fn missing_explicit_xdg_config_defaults_instead_of_reading_missing_file() {
     let suite = unique_suite("missing-explicit-xdg-config");
     let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
