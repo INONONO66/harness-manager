@@ -147,6 +147,8 @@ enum InjectionManifest {
         provider_headers_key: Option<String>,
         supported_providers: Vec<String>,
         #[serde(default)]
+        provider_api_key_envs: BTreeMap<String, String>,
+        #[serde(default)]
         overwrite: bool,
         #[serde(default)]
         endpoint_strip_v1: bool,
@@ -538,6 +540,7 @@ fn convert_injection(path_label: &str, injection: InjectionManifest) -> Result<I
             provider_api_key_key,
             provider_headers_key,
             supported_providers,
+            provider_api_key_envs,
             overwrite,
             endpoint_strip_v1,
             provider_header_overrides,
@@ -566,6 +569,15 @@ fn convert_injection(path_label: &str, injection: InjectionManifest) -> Result<I
             )?;
             for p in &supported_providers {
                 validate_provider_name(path_label, "injection.supported_providers", p)?;
+            }
+            for (provider, env_name) in &provider_api_key_envs {
+                validate_provider_name(path_label, "injection.provider_api_key_envs", provider)?;
+                ensure(
+                    supported_providers.contains(provider),
+                    path_label,
+                    "injection.provider_api_key_envs",
+                )?;
+                validate_env_name_shape(path_label, "injection.provider_api_key_envs", env_name)?;
             }
             for (provider, headers) in &provider_header_overrides {
                 validate_provider_name(
@@ -607,6 +619,7 @@ fn convert_injection(path_label: &str, injection: InjectionManifest) -> Result<I
                     provider_api_key_key,
                     provider_headers_key,
                     supported_providers,
+                    provider_api_key_envs,
                     overwrite,
                     endpoint_strip_v1,
                     provider_header_overrides,

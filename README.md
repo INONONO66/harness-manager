@@ -72,7 +72,7 @@ hm init --force --install   # clean reset: refresh manifests AND reinstall harne
 
 **Override rule.** User runtime manifests override bundled runtimes by normalized display name OR binary name; user harness manifests override by id OR alias. Byte-identical `hm init` copies are silent; any divergence emits a `note:` on stderr. Shadowed builtin routes are preserved as lookup aliases on the replacement, so harnesses referencing the old display name still resolve. A single user manifest shadowing MULTIPLE builtins fails closed, and two user manifests sharing a route fail closed.
 
-**What you can edit.** Anything in the manifest schema — change `supported_providers`, add `provider_header_overrides`, retarget `config_path`, swap the package install strategy, add new `auth_probes`, etc. Run `hm use <runtime>` and your changes drive the next launch.
+**What you can edit.** Anything in the manifest schema — change `supported_providers`, add `provider_api_key_envs` or `provider_header_overrides`, retarget `config_path`, swap the package install strategy, add new `auth_probes`, etc. Run `hm use <runtime>` and your changes drive the next launch.
 
 ## Daily Commands
 
@@ -303,12 +303,18 @@ overwrite = false
 endpoint_strip_v1 = false
 legacy_provider = "openai"
 
+[injection.provider_api_key_envs]
+anthropic = "ANTHROPIC_API_KEY"
+openai = "OPENAI_API_KEY"
+google = "GOOGLE_API_KEY"
+
 [injection.provider_header_overrides.anthropic]
 "x-api-key" = "{bearer}"
 "Authorization" = "Bearer {bearer}"
 ```
 
 `hm use opencode --profile proxy` writes a JSON file under the isolation home (never the user's real `~`). The file is deep-merged into any existing user content. `legacy_provider` (optional) tells the strategy how to fall back to `[profiles.X.llm]`: hm seeds that one provider with `llm.endpoint` and `llm.bearer`.
+`provider_api_key_envs` maps each supported provider id to the child-process env var that should receive the resolved bearer; missing mappings fail closed before env or file writes.
 
 ### Injection strategy 3: `codex-config-seed` (top-level TOML + env hybrid)
 

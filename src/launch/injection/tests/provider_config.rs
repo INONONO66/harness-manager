@@ -81,6 +81,22 @@ fn provider_config_seed_writes_pi_models_json_for_three_providers() {
 }
 
 #[test]
+fn provider_config_seed_uses_manifest_provider_api_key_env_mapping() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    let mut spec = opencode_seed_injection();
+    spec.supported_providers.push("azure".to_string());
+    spec.provider_api_key_envs
+        .insert("azure".to_string(), "AZURE_API_KEY".to_string());
+    let resolved = proxy_profile_with_gateway(vec!["azure"], "azure-bearer");
+    let mut env = HashMap::new();
+
+    apply_provider_config_seed_strategy(&spec, &resolved, &mut env, home).unwrap();
+
+    assert_eq!(env.get("AZURE_API_KEY"), Some(&"azure-bearer".to_string()));
+}
+
+#[test]
 fn provider_config_seed_preserves_existing_unrelated_provider() {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path();

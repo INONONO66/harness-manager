@@ -111,6 +111,7 @@ pub struct ProviderConfigSeedInjection {
     pub provider_api_key_key: String,
     pub provider_headers_key: Option<String>,
     pub supported_providers: Vec<String>,
+    pub provider_api_key_envs: BTreeMap<String, String>,
     pub overwrite: bool,
     pub endpoint_strip_v1: bool,
     pub provider_header_overrides: BTreeMap<String, BTreeMap<String, String>>,

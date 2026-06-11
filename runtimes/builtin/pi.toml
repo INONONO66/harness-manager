@@ -41,6 +41,17 @@ supported_providers = [
 overwrite = false
 endpoint_strip_v1 = true
 
+[injection.provider_api_key_envs]
+anthropic = "ANTHROPIC_API_KEY"
+openai = "OPENAI_API_KEY"
+google = "GOOGLE_API_KEY"
+openrouter = "OPENROUTER_API_KEY"
+groq = "GROQ_API_KEY"
+xai = "XAI_API_KEY"
+deepseek = "DEEPSEEK_API_KEY"
+mistral = "MISTRAL_API_KEY"
+azure = "AZURE_API_KEY"
+
 [injection.provider_header_overrides.anthropic]
 "x-api-key" = "{bearer}"
 "Authorization" = "Bearer {bearer}"

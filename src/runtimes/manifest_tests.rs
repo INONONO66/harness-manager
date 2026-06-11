@@ -217,6 +217,10 @@ fn opencode_manifest_parses_with_provider_config_seed() {
             assert!(seed.supported_providers.contains(&"anthropic".to_string()));
             assert!(seed.supported_providers.contains(&"openai".to_string()));
             assert!(seed.supported_providers.contains(&"google".to_string()));
+            assert_eq!(
+                seed.provider_api_key_envs.get("azure").map(String::as_str),
+                Some("AZURE_API_KEY")
+            );
             assert!(seed.config_path.ends_with(".config/opencode/opencode.json"));
             let anthropic_headers = seed
                 .provider_header_overrides
@@ -242,6 +246,10 @@ fn pi_manifest_parses_with_provider_config_seed_and_unsupported_login() {
             assert_eq!(seed.provider_base_url_key, "baseUrl");
             assert_eq!(seed.provider_api_key_key, "apiKey");
             assert_eq!(seed.provider_headers_key.as_deref(), Some("headers"));
+            assert_eq!(
+                seed.provider_api_key_envs.get("azure").map(String::as_str),
+                Some("AZURE_API_KEY")
+            );
             assert!(seed.config_path.ends_with(".pi/agent/models.json"));
         }
         _ => panic!("expected provider-config-seed strategy"),
