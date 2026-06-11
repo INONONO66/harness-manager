@@ -5,7 +5,13 @@ use serde::Deserialize;
 
 use crate::isolation::spec::{IsolationPlan, SeedFilePlan};
 
+mod records;
 mod validation;
+
+pub use records::{
+    AuthLoginRecord, AuthProbeRecord, CodexConfigSeedInjection, ConfigLocatorRecord, EnvInjection,
+    InjectionRecord, ProviderConfigSeedInjection, RuntimeRecord, SharedStatePlan,
+};
 
 use validation::{
     ensure, parse_mode, validate_args, validate_binary_name, validate_config_path,
@@ -15,143 +21,6 @@ use validation::{
 };
 
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeRecord {
-    pub name: String,
-    pub binary_names: Vec<String>,
-    pub version_arg: String,
-    pub config_locator: ConfigLocatorRecord,
-    pub config_files: Vec<String>,
-    pub auth_probes: Vec<AuthProbeRecord>,
-    pub auth_login: AuthLoginRecord,
-    pub injection: Option<InjectionRecord>,
-    pub isolation: Option<IsolationPlan>,
-    pub keychain_isolation: Option<IsolationPlan>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConfigLocatorRecord {
-    EnvOrHome {
-        env: String,
-        home_relative: String,
-    },
-    XdgConfig {
-        subdir: String,
-        env_override: String,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AuthProbeRecord {
-    EnvKeys {
-        vars: Vec<String>,
-        label: String,
-    },
-    JsonFile {
-        relative_path: String,
-        existence_field: String,
-        label: String,
-    },
-    OAuthFile {
-        relative_path: String,
-        token_field: String,
-        label: String,
-    },
-    NestedOAuthFile {
-        relative_path: String,
-        path: Vec<String>,
-        label: String,
-    },
-    KeychainHeuristic {
-        marker_file: String,
-        keychain_service: Option<String>,
-        label: String,
-    },
-    DataDirJsonFile {
-        data_subdir: String,
-        file_name: String,
-        label: String,
-    },
-    ProviderAuthFile {
-        relative_path: String,
-        label: String,
-    },
-    CodexAuthFile {
-        relative_path: String,
-        oauth_label: String,
-        api_key_label: String,
-        personal_access_token_label: Option<String>,
-        agent_identity_label: Option<String>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AuthLoginRecord {
-    Exec {
-        label: String,
-        binary: String,
-        args: Vec<String>,
-    },
-    Message {
-        lines: Vec<String>,
-    },
-    Unsupported,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InjectionRecord {
-    Env(EnvInjection),
-    ProviderConfigSeed(ProviderConfigSeedInjection),
-    CodexConfigSeed(CodexConfigSeedInjection),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EnvInjection {
-    pub provider: String,
-    pub supported_providers: Vec<String>,
-    pub endpoint_env: String,
-    pub api_key_env: String,
-    pub strip_envs: Vec<String>,
-    pub endpoint_strip_v1: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderConfigSeedInjection {
-    pub config_path: String,
-    pub root_key: String,
-    pub provider_base_url_key: String,
-    pub provider_api_key_key: String,
-    pub provider_headers_key: Option<String>,
-    pub supported_providers: Vec<String>,
-    pub overwrite: bool,
-    pub endpoint_strip_v1: bool,
-    pub provider_header_overrides: BTreeMap<String, BTreeMap<String, String>>,
-    pub legacy_provider: Option<String>,
-}
-
-/// Codex CLI 0.137 expects a top-level `openai_base_url = "..."` and
-/// `model_provider = "openai"` in `~/.codex/config.toml`. Built-in providers
-/// in codex are merged with `or_insert`, so a user-defined
-/// `[model_providers.openai]` block is IGNORED. The only ways to redirect
-/// codex are: (a) top-level `openai_base_url` (modifies the built-in openai
-/// provider) or (b) a custom provider name + `model_provider = "<name>"`.
-/// This strategy implements (a) plus env injection of `CODEX_API_KEY`
-/// (codex's runtime auth env, NOT `OPENAI_API_KEY` which only prefills the
-/// onboarding UI).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodexConfigSeedInjection {
-    pub config_path: String,
-    pub openai_base_url_key: String,
-    pub model_provider_key: String,
-    pub model_provider_value: String,
-    pub provider: String,
-    pub supported_providers: Vec<String>,
-    pub api_key_env: String,
-    pub strip_envs: Vec<String>,
-    pub overwrite: bool,
-    pub endpoint_strip_v1: bool,
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -172,6 +41,8 @@ struct RuntimeManifest {
     isolation: Option<IsolationManifest>,
     #[serde(default)]
     keychain_isolation: Option<IsolationManifest>,
+    #[serde(default)]
+    shared_state: Option<SharedStateManifest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -326,6 +197,15 @@ struct SeedFileManifest {
     mode: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SharedStateManifest {
+    #[serde(default)]
+    database_dirs: Vec<String>,
+    #[serde(default)]
+    auth_files: Vec<String>,
+}
+
 pub fn parse_toml(path_label: &str, input: &str) -> Result<RuntimeRecord> {
     if input.len() > MAX_MANIFEST_BYTES {
         bail!("{path_label}: runtime manifest exceeds 64 KiB");
@@ -374,6 +254,10 @@ fn convert_manifest(path_label: &str, manifest: RuntimeManifest) -> Result<Runti
         .keychain_isolation
         .map(|iso| convert_isolation(path_label, "keychain_isolation", iso))
         .transpose()?;
+    let shared_state = manifest
+        .shared_state
+        .map(|shared_state| convert_shared_state(path_label, shared_state))
+        .transpose()?;
 
     Ok(RuntimeRecord {
         name: manifest.name,
@@ -386,6 +270,23 @@ fn convert_manifest(path_label: &str, manifest: RuntimeManifest) -> Result<Runti
         injection,
         isolation,
         keychain_isolation,
+        shared_state,
+    })
+}
+
+fn convert_shared_state(
+    path_label: &str,
+    shared_state: SharedStateManifest,
+) -> Result<SharedStatePlan> {
+    for path in &shared_state.database_dirs {
+        validate_relative_path(path_label, "shared_state.database_dirs", path)?;
+    }
+    for path in &shared_state.auth_files {
+        validate_relative_path(path_label, "shared_state.auth_files", path)?;
+    }
+    Ok(SharedStatePlan {
+        database_dirs: shared_state.database_dirs,
+        auth_files: shared_state.auth_files,
     })
 }
 

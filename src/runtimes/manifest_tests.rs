@@ -105,6 +105,64 @@ fn codex_manifest_parses_with_codex_config_seed_strategy() {
 }
 
 #[test]
+fn runtime_manifest_parses_shared_state_policy() {
+    let input = r#"
+schema_version = 1
+name = "Custom Codex"
+binary_names = ["custom-codex"]
+version_arg = "--version"
+
+[config_locator]
+kind = "env-or-home"
+env = "CODEX_HOME"
+home_relative = ".codex"
+
+[auth_login]
+kind = "unsupported"
+
+[shared_state]
+database_dirs = [".codex"]
+auth_files = [".codex/auth.json"]
+"#;
+
+    let parsed = parse_toml("custom-codex.toml", input).expect("shared_state parses");
+    let shared_state = parsed.shared_state.expect("shared state policy");
+
+    assert_eq!(shared_state.database_dirs, vec![".codex"]);
+    assert_eq!(shared_state.auth_files, vec![".codex/auth.json"]);
+}
+
+#[test]
+fn rejects_shared_state_path_traversal() {
+    let input = r#"
+schema_version = 1
+name = "Bad Shared State"
+binary_names = ["bad-shared-state"]
+version_arg = "--version"
+
+[config_locator]
+kind = "env-or-home"
+env = ""
+home_relative = ".bad"
+
+[auth_login]
+kind = "unsupported"
+
+[shared_state]
+database_dirs = [".bad"]
+auth_files = ["../secret.json"]
+"#;
+
+    let err = parse_toml("bad-shared-state.toml", input)
+        .expect_err("traversing shared_state path must fail");
+
+    assert!(
+        err.to_string().contains("shared_state.auth_files"),
+        "expected shared_state.auth_files validation error, got: {err:#}"
+    );
+}
+
+#[test]
 fn codex_manifest_separates_access_token_env_probe_from_api_key() {
     let codex = parse_for("Codex CLI");
 

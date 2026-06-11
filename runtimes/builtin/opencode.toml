@@ -30,6 +30,10 @@ lines = [
     "Or run `opencode` to authenticate interactively.",
 ]
 
+[shared_state]
+database_dirs = [".local/share/opencode"]
+auth_files = [".local/share/opencode/auth.json"]
+
 [injection]
 strategy = "provider-config-seed"
 config_path = "{home}/.config/opencode/opencode.json"

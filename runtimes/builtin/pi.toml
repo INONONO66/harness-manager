@@ -17,6 +17,9 @@ label = "Provider auth"
 [auth_login]
 kind = "unsupported"
 
+[shared_state]
+auth_files = [".pi/agent/auth.json"]
+
 [injection]
 strategy = "provider-config-seed"
 config_path = "{home}/.pi/agent/models.json"
