@@ -28,7 +28,7 @@ use paths::{
     create_private_dir_all, create_private_isolation_base, ensure_under_base, isolation_root,
     reject_existing_symlink_chain, validate_relative_path,
 };
-pub use shared_state::prepare_runtime_shared_state;
+pub use shared_state::prepare_runtime_shared_state_with_auth;
 #[cfg(test)]
 pub(crate) use shared_state::{
     prepare_runtime_shared_state_from_home, prepare_shared_state_from_home,

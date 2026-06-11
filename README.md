@@ -200,7 +200,8 @@ Full schema and plugin packaging guidance: [docs/harness-manifest.md](docs/harne
 - Package install strategies are structured: `npm-global`, `npm-isolated`, `npx-installer`, `bunx-installer`, `python-tool`, or `manual`. The `npm-isolated` kind installs into the harness isolation home (`$XDG_DATA_HOME/hm/runtimes/<id>/home/.npm`) via `NPM_CONFIG_PREFIX` so the package's binaries never appear on the host `PATH`; `hm use <harness>` adds the isolated `.npm/bin` to the launch `PATH` and exec's the binary directly. Use this for harnesses whose CLI you want gated behind `hm use`.
 - Static env keys cannot be host secrets such as `*_TOKEN`, `*_SECRET`, or `*_API_KEY`.
 - Seed files must live under `{home}/`, `{runtime_home}/`, `{state}/`, or `{tmp}/`; for harnesses, `{runtime_home}` resolves to the harness runtime root so runtime session DBs, auth, MCP config, plugins, hooks, prompts, and trust state stay isolated per harness.
-- hm links known runtime database files back to the user's main runtime DBs: Codex `*.sqlite*` under `~/.codex`, and OpenCode `*.db*` under `~/.local/share/opencode`. Harness config/auth/plugin files stay isolated, while conversation/log/memory DBs stay shared.
+- hm links known runtime database files back to the user's main runtime DBs: Codex `*.sqlite*` under `~/.codex`, and OpenCode `*.db*` under `~/.local/share/opencode`. Harness config/plugin files stay isolated, while conversation/log/memory DBs stay shared.
+- Host auth files are shared only for isolated launches without a profile. When a profile is applied, profile-driven gateway/API credentials are used and host OAuth/auth files are not linked into the harness home.
 - Side-effecting operations take a per-harness runtime lock under `$XDG_DATA_HOME/hm/runtimes/.locks`.
 
 ## Profiles And Proxy Gateway

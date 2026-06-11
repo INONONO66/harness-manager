@@ -197,6 +197,181 @@ fn use_without_profile_and_without_default_profile_launches_profileless() {
 }
 
 #[test]
+fn profile_launch_does_not_share_host_auth_into_harness_isolation() {
+    let suite = unique_suite("profile-auth-not-shared");
+    let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
+    let tmp_data = std::env::temp_dir().join(format!("{suite}-data"));
+    let tmp_home = std::env::temp_dir().join(format!("{suite}-home"));
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+    std::fs::create_dir_all(tmp_cfg.join("hm")).unwrap();
+    std::fs::create_dir_all(tmp_home.join(".codex")).unwrap();
+    std::fs::write(tmp_home.join(".codex/auth.json"), r#"{"token":"host"}"#).unwrap();
+    std::fs::write(
+        tmp_cfg.join("hm/config.toml"),
+        "default_profile = \"proxy\"\n[profiles.proxy.gateway]\nbase_url = \"http://127.0.0.1:9/v1\"\nbearer = \"qa-token\"\nproviders = [\"openai\"]\n",
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_hm"))
+        .args(["use", "omx", "--profile", "proxy", "--print-env"])
+        .env("XDG_CONFIG_HOME", &tmp_cfg)
+        .env("XDG_DATA_HOME", &tmp_data)
+        .env("HOME", &tmp_home)
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("OPENAI_BASE_URL")
+        .env_remove("CODEX_API_KEY")
+        .env_remove("CODEX_ACCESS_TOKEN")
+        .output()
+        .expect("spawn hm");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let isolated_auth = tmp_data.join("hm/runtimes/omx/home/.codex/auth.json");
+    let isolated_config = tmp_data.join("hm/runtimes/omx/home/.codex/config.toml");
+    let auth_exists = isolated_auth.exists();
+    let config_exists = isolated_config.exists();
+
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+
+    assert!(
+        output.status.success(),
+        "profile launch env assembly should succeed; stderr was: {stderr}"
+    );
+    assert!(
+        config_exists,
+        "profile launch should still seed runtime config into isolation"
+    );
+    assert!(
+        !auth_exists,
+        "profile launch must not share host auth file into harness isolation"
+    );
+}
+
+#[test]
+fn no_profile_launch_shares_host_auth_when_runtime_manifest_allows_it() {
+    let suite = unique_suite("no-profile-auth-shared");
+    let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
+    let tmp_data = std::env::temp_dir().join(format!("{suite}-data"));
+    let tmp_home = std::env::temp_dir().join(format!("{suite}-home"));
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+    std::fs::create_dir_all(tmp_cfg.join("hm")).unwrap();
+    std::fs::create_dir_all(tmp_home.join(".codex")).unwrap();
+    std::fs::write(tmp_home.join(".codex/auth.json"), r#"{"token":"host"}"#).unwrap();
+    std::fs::write(tmp_cfg.join("hm/config.toml"), "").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_hm"))
+        .args(["use", "omx", "--print-env"])
+        .env("XDG_CONFIG_HOME", &tmp_cfg)
+        .env("XDG_DATA_HOME", &tmp_data)
+        .env("HOME", &tmp_home)
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("OPENAI_BASE_URL")
+        .env_remove("CODEX_API_KEY")
+        .env_remove("CODEX_ACCESS_TOKEN")
+        .output()
+        .expect("spawn hm");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let isolated_auth = tmp_data.join("hm/runtimes/omx/home/.codex/auth.json");
+    let auth_is_link = std::fs::symlink_metadata(&isolated_auth)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
+
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+
+    assert!(
+        output.status.success(),
+        "no-profile launch env assembly should succeed; stderr was: {stderr}"
+    );
+    assert!(
+        auth_is_link,
+        "no-profile launch should keep runtime-manifest host auth sharing"
+    );
+}
+
+#[test]
+fn profile_launch_removes_stale_host_auth_link_from_previous_no_profile_launch() {
+    let suite = unique_suite("profile-removes-shared-auth");
+    let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
+    let tmp_data = std::env::temp_dir().join(format!("{suite}-data"));
+    let tmp_home = std::env::temp_dir().join(format!("{suite}-home"));
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+    std::fs::create_dir_all(tmp_cfg.join("hm")).unwrap();
+    std::fs::create_dir_all(tmp_home.join(".codex/sessions")).unwrap();
+    std::fs::write(tmp_home.join(".codex/auth.json"), r#"{"token":"host"}"#).unwrap();
+    std::fs::write(tmp_home.join(".codex/sessions/events.sqlite"), "db").unwrap();
+    std::fs::write(tmp_cfg.join("hm/config.toml"), "").unwrap();
+
+    let first = Command::new(env!("CARGO_BIN_EXE_hm"))
+        .args(["use", "omx", "--print-env"])
+        .env("XDG_CONFIG_HOME", &tmp_cfg)
+        .env("XDG_DATA_HOME", &tmp_data)
+        .env("HOME", &tmp_home)
+        .output()
+        .expect("spawn hm");
+
+    let auth = tmp_data.join("hm/runtimes/omx/home/.codex/auth.json");
+    let db = tmp_data.join("hm/runtimes/omx/home/.codex/sessions/events.sqlite");
+    let auth_was_link = std::fs::symlink_metadata(&auth)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
+    let db_was_link = std::fs::symlink_metadata(&db)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
+
+    std::fs::write(
+        tmp_cfg.join("hm/config.toml"),
+        "default_profile = \"proxy\"\n[profiles.proxy.gateway]\nbase_url = \"http://127.0.0.1:9/v1\"\nbearer = \"qa-token\"\nproviders = [\"openai\"]\n",
+    )
+    .unwrap();
+    let second = Command::new(env!("CARGO_BIN_EXE_hm"))
+        .args(["use", "omx", "--profile", "proxy", "--print-env"])
+        .env("XDG_CONFIG_HOME", &tmp_cfg)
+        .env("XDG_DATA_HOME", &tmp_data)
+        .env("HOME", &tmp_home)
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("OPENAI_BASE_URL")
+        .env_remove("CODEX_API_KEY")
+        .env_remove("CODEX_ACCESS_TOKEN")
+        .output()
+        .expect("spawn hm");
+
+    let auth_exists_after_profile = auth.exists();
+    let db_still_link = std::fs::symlink_metadata(&db)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
+
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+
+    assert!(first.status.success(), "initial no-profile launch failed");
+    assert!(auth_was_link, "initial no-profile launch should share auth");
+    assert!(
+        db_was_link,
+        "initial no-profile launch should share DB files"
+    );
+    assert!(second.status.success(), "profile launch failed");
+    assert!(
+        !auth_exists_after_profile,
+        "profile launch must remove stale host auth link"
+    );
+    assert!(
+        db_still_link,
+        "profile launch should keep runtime database sharing"
+    );
+}
+
+#[test]
 fn missing_explicit_xdg_config_defaults_instead_of_reading_missing_file() {
     let suite = unique_suite("missing-explicit-xdg-config");
     let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));

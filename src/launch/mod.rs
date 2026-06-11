@@ -11,7 +11,7 @@ use crate::config::HmConfig;
 use crate::harnesses::registry::HarnessRegistry;
 use crate::runtimes::registry::RuntimeRegistry;
 
-pub type UseEnvAssembly = assembly::UseEnvAssembly;
+pub use assembly::{IsolationAuthState, UseEnvAssembly};
 
 pub fn effective_profile_name(arg: Option<&str>, hm_config: &HmConfig) -> Option<String> {
     arg.map(str::to_string)

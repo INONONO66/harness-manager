@@ -23,6 +23,13 @@ pub struct UseEnvAssembly {
     pub isolation_present: bool,
     pub binary_override: Option<PathBuf>,
     pub isolated_binary_required: bool,
+    pub auth_state: IsolationAuthState,
+}
+
+pub enum IsolationAuthState {
+    None,
+    ProfileCredentials,
+    SharedHostAuth,
 }
 
 pub fn assemble_use_env(
@@ -36,7 +43,9 @@ pub fn assemble_use_env(
     let target = resolve_target(target_name, runtimes, harnesses)?;
     let selected = select_target(target, allow_keychain)?;
     let resolved_profile = resolve_profile_before_isolation(profile_name)?;
-    let iso_setup = prepare_isolation(selected.isolation, selected.runtime)?;
+    let has_profile = resolved_profile.is_some();
+    let share_auth_files = !has_profile;
+    let iso_setup = prepare_isolation(selected.isolation, selected.runtime, share_auth_files)?;
 
     let mut env = build_launch_env(
         &inherited,
@@ -73,6 +82,13 @@ pub fn assemble_use_env(
         isolation_present: iso_setup.is_some(),
         binary_override,
         isolated_binary_required: selected.isolated_package_binary_path.is_some(),
+        auth_state: if iso_setup.is_none() {
+            IsolationAuthState::None
+        } else if has_profile {
+            IsolationAuthState::ProfileCredentials
+        } else {
+            IsolationAuthState::SharedHostAuth
+        },
     })
 }
 
@@ -149,6 +165,7 @@ fn resolve_profile_before_isolation(
 fn prepare_isolation(
     isolation_plan: Option<IsolationPlan>,
     runtime: &crate::runtimes::manifest::RuntimeRecord,
+    share_auth_files: bool,
 ) -> anyhow::Result<
     Option<(
         IsolationPlan,
@@ -163,7 +180,11 @@ fn prepare_isolation(
     let lock = isolation::IsolationLockGuard::acquire(&paths)?;
     isolation::ensure_isolation_tree(&iso, &paths)?;
     isolation::seed_files(&iso, &paths)?;
-    isolation::prepare_runtime_shared_state(runtime.shared_state.as_ref(), &paths)?;
+    isolation::prepare_runtime_shared_state_with_auth(
+        runtime.shared_state.as_ref(),
+        &paths,
+        share_auth_files,
+    )?;
     Ok(Some((iso, paths, lock)))
 }
 

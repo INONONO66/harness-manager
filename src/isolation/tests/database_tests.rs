@@ -58,7 +58,7 @@ fn opencode_nested_db_files_link_to_main_runtime_home() {
         &[".local/share/opencode"],
         &[".local/share/opencode/auth.json"],
     );
-    prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home).unwrap();
+    prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, true).unwrap();
 
     // Then: nested DB files are symlinked to the pristine main runtime DB.
     let target_dir = paths.home.join(".local/share/opencode/session/logs");
@@ -104,7 +104,7 @@ fn database_link_does_not_traverse_symlinked_main_runtime_dirs() {
         &[".local/share/opencode"],
         &[".local/share/opencode/auth.json"],
     );
-    prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home).unwrap();
+    prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, true).unwrap();
 
     // Then: DB discovery stays inside the real main runtime tree.
     assert!(
@@ -140,7 +140,8 @@ fn database_link_rejects_existing_harness_local_db() {
 
     // When: core tries to link the main runtime DB into the harness home.
     let plan = shared_state(&[".codex"], &[".codex/auth.json"]);
-    let err = prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home).unwrap_err();
+    let err =
+        prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, true).unwrap_err();
 
     // Then: launch is blocked instead of silently forking session state.
     assert!(
@@ -176,11 +177,53 @@ fn allowlisted_auth_files_link_to_main_runtime_home() {
 
         ensure_isolation_tree(&spec, &paths).unwrap();
         let plan = shared_state(&[], &[auth_relative]);
-        prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home).unwrap();
+        prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, true).unwrap();
 
         assert_shared_link_points_at(&paths.home.join(auth_relative), &source);
         let _ = fs::remove_dir_all(paths.base.parent().unwrap().parent().unwrap());
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn auth_files_are_not_shared_when_launch_uses_profile_credentials() {
+    let paths = tmp_paths("profile-seeded-auth");
+    let main_home = paths
+        .base
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("main-home");
+    let source_auth = main_home.join(".codex/auth.json");
+    let source_db_dir = main_home.join(".codex/sessions");
+    let source_db = source_db_dir.join("events.sqlite");
+    fs::create_dir_all(source_auth.parent().unwrap()).unwrap();
+    fs::create_dir_all(&source_db_dir).unwrap();
+    fs::write(&source_auth, "token").unwrap();
+    fs::write(&source_db, "db").unwrap();
+    let spec = iso_plan(
+        "profile-seeded-auth",
+        true,
+        &[".codex"],
+        &[],
+        Vec::new(),
+        None,
+    );
+
+    ensure_isolation_tree(&spec, &paths).unwrap();
+    let plan = shared_state(&[".codex"], &[".codex/auth.json"]);
+    prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, false).unwrap();
+
+    assert!(
+        !paths.home.join(".codex/auth.json").exists(),
+        "profile-driven launches must not link host auth"
+    );
+    assert_shared_link_points_at(
+        &paths.home.join(".codex/sessions/events.sqlite"),
+        &source_db,
+    );
+    let _ = fs::remove_dir_all(paths.base.parent().unwrap().parent().unwrap());
 }
 
 #[cfg(unix)]
@@ -203,7 +246,8 @@ fn auth_link_rejects_existing_harness_local_auth_file() {
     fs::write(&local_auth, "local").unwrap();
 
     let plan = shared_state(&[".codex"], &[".codex/auth.json"]);
-    let err = prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home).unwrap_err();
+    let err =
+        prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, true).unwrap_err();
 
     assert!(
         err.to_string().contains("already exists"),
@@ -238,7 +282,7 @@ fn manifest_declared_shared_state_links_auth_and_database_files() {
     let spec = iso_plan("custom-shared", true, &[], &[], Vec::new(), None);
 
     ensure_isolation_tree(&spec, &paths).unwrap();
-    prepare_shared_state_from_home(&plan, &paths, &main_home).unwrap();
+    prepare_shared_state_from_home(&plan, &paths, &main_home, true).unwrap();
 
     assert_shared_link_points_at(
         &paths.home.join(".custom/data/session/events.sqlite"),

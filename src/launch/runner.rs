@@ -6,7 +6,7 @@ use anyhow::bail;
 use colored::Colorize;
 
 use super::target::{resolve_target, LaunchTarget};
-use super::{assemble_use_env, UseEnvAssembly};
+use super::{assemble_use_env, IsolationAuthState, UseEnvAssembly};
 use crate::harnesses::registry::HarnessRegistry;
 use crate::runtimes::registry::RuntimeRegistry;
 
@@ -59,6 +59,7 @@ fn announce_launch(assembly: &UseEnvAssembly) {
             applied_name.cyan()
         );
         print_seeded_path(assembly);
+        print_auth_state(assembly);
         return;
     }
 
@@ -74,6 +75,7 @@ fn announce_launch(assembly: &UseEnvAssembly) {
         suffix
     );
     print_seeded_path(assembly);
+    print_auth_state(assembly);
 }
 
 fn print_seeded_path(assembly: &UseEnvAssembly) {
@@ -83,6 +85,21 @@ fn print_seeded_path(assembly: &UseEnvAssembly) {
             "✓".green().bold(),
             seeded.display().to_string().cyan()
         );
+    }
+}
+
+fn print_auth_state(assembly: &UseEnvAssembly) {
+    match assembly.auth_state {
+        IsolationAuthState::None => {}
+        IsolationAuthState::ProfileCredentials => {
+            eprintln!(
+                "{} profile credentials; host auth not shared",
+                "Auth:".bold()
+            );
+        }
+        IsolationAuthState::SharedHostAuth => {
+            eprintln!("{} shared host auth from runtime manifest", "Auth:".bold());
+        }
     }
 }
 
