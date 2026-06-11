@@ -172,7 +172,7 @@ harnesses must declare this field.
 
 `isolation.seed_files`: files created inside the isolation tree before launch or package-manager work.
 
-hm owns main runtime database sharing outside the manifest schema. Codex harness homes link `*.sqlite*` files to `~/.codex`; OpenCode harness homes link `*.db*` files to `~/.local/share/opencode`. Harness manifests should still keep config/auth/plugins/hooks/prompts under `{home}`.
+hm owns main runtime state sharing outside the manifest schema. Codex harness homes link `*.sqlite*` files to `~/.codex`; OpenCode harness homes link `*.db*` files to `~/.local/share/opencode`. Host auth files are linked only for isolated launches without a profile; profile launches use the profile's gateway/API credentials and keep host auth out of the harness home. Harness manifests should still keep config/auth/plugins/hooks/prompts under `{home}`.
 
 ## Isolation Tokens
 

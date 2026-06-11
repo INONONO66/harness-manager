@@ -10,23 +10,25 @@ use super::paths::{
 use super::IsolationPaths;
 use crate::runtimes::manifest::SharedStatePlan;
 
-pub fn prepare_runtime_shared_state(
+pub fn prepare_runtime_shared_state_with_auth(
     plan: Option<&SharedStatePlan>,
     paths: &IsolationPaths,
+    share_auth_files: bool,
 ) -> Result<()> {
     let Some(home) = dirs::home_dir() else {
         return Ok(());
     };
-    prepare_runtime_shared_state_from_home(plan, paths, &home)
+    prepare_runtime_shared_state_from_home(plan, paths, &home, share_auth_files)
 }
 
 pub(crate) fn prepare_runtime_shared_state_from_home(
     plan: Option<&SharedStatePlan>,
     paths: &IsolationPaths,
     main_home: &Path,
+    share_auth_files: bool,
 ) -> Result<()> {
     match plan {
-        Some(plan) => prepare_shared_state_from_home(plan, paths, main_home),
+        Some(plan) => prepare_shared_state_from_home(plan, paths, main_home, share_auth_files),
         None => Ok(()),
     }
 }
@@ -35,6 +37,7 @@ pub(crate) fn prepare_shared_state_from_home(
     plan: &SharedStatePlan,
     paths: &IsolationPaths,
     main_home: &Path,
+    share_auth_files: bool,
 ) -> Result<()> {
     for relative in &plan.database_dirs {
         validate_relative_path(relative, "shared_state.database_dirs")?;
@@ -42,11 +45,32 @@ pub(crate) fn prepare_shared_state_from_home(
         let target_dir = paths.home.join(relative);
         link_database_tree(&source_dir, &target_dir, paths)?;
     }
+    if !share_auth_files {
+        remove_shared_auth_links(plan, paths)?;
+        return Ok(());
+    }
     for relative in &plan.auth_files {
         validate_relative_path(relative, "shared_state.auth_files")?;
         let source = main_home.join(relative);
         let target = paths.home.join(relative);
         link_shared_file(&source, &target, paths, "auth file")?;
+    }
+    Ok(())
+}
+
+fn remove_shared_auth_links(plan: &SharedStatePlan, paths: &IsolationPaths) -> Result<()> {
+    for relative in &plan.auth_files {
+        validate_relative_path(relative, "shared_state.auth_files")?;
+        let target = paths.home.join(relative);
+        match fs::symlink_metadata(&target) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                fs::remove_file(&target)
+                    .with_context(|| format!("remove shared auth link {}", target.display()))?;
+            }
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err).with_context(|| format!("inspect {}", target.display())),
+        }
     }
     Ok(())
 }

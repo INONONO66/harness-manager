@@ -12,7 +12,8 @@ fn harness_install_package_with_alias_writes_manifest_and_installs() {
     let config = temp.path().join("config");
     let home = temp.path().join("home");
     fs::create_dir_all(&bin).unwrap();
-    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(home.join(".codex")).unwrap();
+    fs::write(home.join(".codex/auth.json"), r#"{"token":"host"}"#).unwrap();
     let npm_log = temp.path().join("npm.log");
     fake_npm(&bin, &npm_log);
 
@@ -50,10 +51,12 @@ fn harness_install_package_with_alias_writes_manifest_and_installs() {
     assert!(manifest.contains("target_runtime = \"Codex CLI\""));
     assert!(manifest.contains("kind = \"npm-global\""));
     assert!(manifest.contains("self_update = \"managed-by-hm\""));
-    assert_eq!(
-        fs::read_to_string(npm_log).unwrap(),
-        "install\n-g\ndemo-package\n"
+    let npm_output = fs::read_to_string(npm_log).unwrap();
+    assert!(
+        !npm_output.contains("auth_link_visible"),
+        "package manager must not see host auth files:\n{npm_output}"
     );
+    assert_eq!(npm_output, "install\n-g\ndemo-package\n");
 }
 
 #[test]

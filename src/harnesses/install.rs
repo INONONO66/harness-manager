@@ -18,7 +18,7 @@ fn apply_isolation_env(
 ) -> anyhow::Result<()> {
     isolation::ensure_isolation_tree(iso, paths)?;
     isolation::seed_files(iso, paths)?;
-    isolation::prepare_runtime_shared_state(target_runtime_shared_state, paths)?;
+    isolation::prepare_runtime_shared_state_with_auth(target_runtime_shared_state, paths, false)?;
     let inherited: std::collections::HashMap<String, String> = std::env::vars().collect();
     let env = isolation::build_sanitized_isolation_env(&inherited, iso, paths);
     cmd.env_clear();
