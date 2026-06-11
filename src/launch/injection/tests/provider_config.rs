@@ -4,6 +4,8 @@ use crate::launch::injection::{
 };
 use serde_json::Value;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn provider_config_seed_writes_opencode_json_for_three_providers() {
@@ -104,6 +106,47 @@ fn provider_config_seed_preserves_existing_unrelated_provider() {
         body["provider"]["openai"]["options"]["baseURL"].as_str(),
         Some("https://gw.example/v1")
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn provider_config_seed_writes_config_with_owner_only_permissions() {
+    // Given: provider config seeding writes a bearer into a new JSON config file.
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    let resolved = proxy_profile_with_gateway(vec!["openai"], "bearer");
+    let mut env = HashMap::new();
+
+    // When: hm seeds the provider config.
+    let path =
+        apply_provider_config_seed_strategy(&opencode_seed_injection(), &resolved, &mut env, home)
+            .unwrap();
+
+    // Then: the resulting file is not group/world-readable.
+    let mode = fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "provider config must be written with 0600");
+}
+
+#[cfg(unix)]
+#[test]
+fn provider_config_seed_restricts_permissions_on_existing_config() {
+    // Given: an existing provider config with broad permissions.
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    let target = home.join(".config/opencode/opencode.json");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    fs::write(&target, r#"{ "provider": {} }"#).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
+    let resolved = proxy_profile_with_gateway(vec!["openai"], "bearer");
+    let mut env = HashMap::new();
+
+    // When: hm rewrites the provider config.
+    apply_provider_config_seed_strategy(&opencode_seed_injection(), &resolved, &mut env, home)
+        .unwrap();
+
+    // Then: the final file is tightened to owner-only permissions.
+    let mode = fs::metadata(target).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "provider config rewrite must force 0600");
 }
 
 #[test]

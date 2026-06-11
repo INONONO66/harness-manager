@@ -16,6 +16,8 @@ use super::validation::{
     validate_header_name_at_runtime,
 };
 
+mod secure_write;
+
 #[derive(Debug, Clone)]
 pub struct ProviderConfigSeedPreview {
     pub providers: Vec<String>,
@@ -180,8 +182,7 @@ pub fn apply_provider_config_seed_strategy(
         ensure_safe_write_path(&config_path, home_dir, "injection.config_path")?;
     }
     let pretty = serde_json::to_string_pretty(&body)?;
-    fs::write(&config_path, format!("{pretty}\n"))
-        .with_context(|| format!("failed to write {}", config_path.display()))?;
+    secure_write::write_provider_config_file(&config_path, &format!("{pretty}\n"))?;
     Ok(config_path)
 }
 
