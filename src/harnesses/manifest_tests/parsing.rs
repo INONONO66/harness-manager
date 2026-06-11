@@ -31,7 +31,7 @@ fn parses_minimal_manifest_into_owned_spec() {
     );
     assert!(parsed.isolation.seed_files.is_empty());
     match parsed.package {
-        ManifestPackageSpec::NpmGlobal { package } => assert_eq!(package, "demo-package"),
+        ManifestPackageSpec::NpmGlobal { package, .. } => assert_eq!(package, "demo-package"),
         other => panic!("unexpected package variant: {other:?}"),
     }
 }

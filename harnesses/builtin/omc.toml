@@ -8,6 +8,7 @@ launch_binary = "omc"
 [package]
 kind = "npm-isolated"
 package = "oh-my-claude-sisyphus"
+self_update = "suppressed-by-env"
 
 [isolation]
 subdir = "omc"

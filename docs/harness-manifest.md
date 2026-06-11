@@ -71,6 +71,7 @@ launch_args = ["agent"]
 [package]
 kind = "manual"
 instructions = "Install demo-agent from your plugin distribution."
+self_update = "not-applicable"
 
 [isolation]
 subdir = "demo"
@@ -103,6 +104,7 @@ Use one structured `package.kind`. `hm` never runs shell snippets from manifests
 [package]
 kind = "npm-global"
 package = "my-package"
+self_update = "managed-by-hm"
 ```
 
 ```toml
@@ -110,6 +112,7 @@ package = "my-package"
 kind = "npx-installer"
 package = "my-package"
 args = ["setup"]
+self_update = "managed-by-hm"
 ```
 
 ```toml
@@ -117,18 +120,21 @@ args = ["setup"]
 kind = "bunx-installer"
 package = "my-package"
 args = ["install"]
+self_update = "managed-by-hm"
 ```
 
 ```toml
 [package]
 kind = "python-tool"
 package = "my-package"
+self_update = "managed-by-hm"
 ```
 
 ```toml
 [package]
 kind = "manual"
 instructions = "Install the binary with your plugin manager."
+self_update = "not-applicable"
 ```
 
 ## Field Reference
@@ -148,6 +154,13 @@ instructions = "Install the binary with your plugin manager."
 `launch_binary`: optional executable name to run instead of the target runtime binary.
 
 `launch_args`: optional fixed args prepended before user args.
+
+`package.self_update`: optional self-update stance for the package or wrapper.
+Use `managed-by-hm` when installs and updates should go through `hm harness
+install/update`, `suppressed-by-env` when launch-time upstream self-updaters are
+disabled through `isolation.static_envs`, and `not-applicable` for manual
+entries or packages with no self-update behavior. Bundled package-backed
+harnesses must declare this field.
 
 `isolation.subdir`: optional runtime directory name. Defaults to `id`.
 

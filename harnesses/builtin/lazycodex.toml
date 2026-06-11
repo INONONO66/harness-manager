@@ -10,6 +10,7 @@ launch_binary = "codex"
 kind = "npx-installer"
 package = "lazycodex-ai"
 args = ["install"]
+self_update = "managed-by-hm"
 
 [isolation]
 subdir = "lazycodex"

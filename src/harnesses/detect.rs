@@ -89,11 +89,11 @@ fn package_cache_installed_at(home: &Path, package: &PackageSpec) -> Option<Path
 
 fn format_package_source(pkg: &PackageSpec) -> String {
     match pkg {
-        PackageSpec::NpmGlobal { package } => format!("npm-global ({package})"),
-        PackageSpec::NpmIsolated { package } => format!("npm-isolated ({package})"),
+        PackageSpec::NpmGlobal { package, .. } => format!("npm-global ({package})"),
+        PackageSpec::NpmIsolated { package, .. } => format!("npm-isolated ({package})"),
         PackageSpec::NpxInstaller { package, .. } => format!("npx-installer ({package})"),
         PackageSpec::BunxInstaller { package, .. } => format!("bunx-installer ({package})"),
-        PackageSpec::PythonTool { package } => format!("python-tool ({package})"),
+        PackageSpec::PythonTool { package, .. } => format!("python-tool ({package})"),
         PackageSpec::Manual { .. } => "manual".to_string(),
     }
 }
@@ -235,6 +235,7 @@ mod tests {
             target_runtime_shared_state: None,
             package: PackageSpec::Manual {
                 instructions: "".to_string(),
+                self_update: None,
             },
             detect_binaries: vec!["sh".to_string()],
             isolation: empty_iso("test"),
@@ -256,6 +257,7 @@ mod tests {
             target_runtime_shared_state: None,
             package: PackageSpec::Manual {
                 instructions: "".to_string(),
+                self_update: None,
             },
             detect_binaries: vec!["nonexistent-binary-xyz-99".to_string()],
             isolation: empty_iso("test"),
@@ -320,39 +322,45 @@ seed_files = []
     fn format_package_source_covers_every_kind() {
         assert_eq!(
             format_package_source(&PackageSpec::NpmGlobal {
-                package: "p".to_string()
+                package: "p".to_string(),
+                self_update: None,
             }),
             "npm-global (p)"
         );
         assert_eq!(
             format_package_source(&PackageSpec::NpmIsolated {
-                package: "p".to_string()
+                package: "p".to_string(),
+                self_update: None,
             }),
             "npm-isolated (p)"
         );
         assert_eq!(
             format_package_source(&PackageSpec::NpxInstaller {
                 package: "p".to_string(),
-                args: Vec::new()
+                args: Vec::new(),
+                self_update: None,
             }),
             "npx-installer (p)"
         );
         assert_eq!(
             format_package_source(&PackageSpec::BunxInstaller {
                 package: "p".to_string(),
-                args: Vec::new()
+                args: Vec::new(),
+                self_update: None,
             }),
             "bunx-installer (p)"
         );
         assert_eq!(
             format_package_source(&PackageSpec::PythonTool {
-                package: "p".to_string()
+                package: "p".to_string(),
+                self_update: None,
             }),
             "python-tool (p)"
         );
         assert_eq!(
             format_package_source(&PackageSpec::Manual {
-                instructions: "x".to_string()
+                instructions: "x".to_string(),
+                self_update: None,
             }),
             "manual"
         );
@@ -390,6 +398,7 @@ seed_files = []
             package: PackageSpec::NpxInstaller {
                 package: "lazysh-ai".to_string(),
                 args: Vec::new(),
+                self_update: None,
             },
             detect_binaries: vec!["sh".to_string()],
             isolation,
@@ -425,6 +434,7 @@ seed_files = []
             package: PackageSpec::NpxInstaller {
                 package: "lazysh-ai".to_string(),
                 args: Vec::new(),
+                self_update: None,
             },
             detect_binaries: vec!["sh".to_string()],
             isolation: isolation.clone(),
@@ -461,6 +471,7 @@ seed_files = []
             package: PackageSpec::BunxInstaller {
                 package: "oh-my-bunsh".to_string(),
                 args: Vec::new(),
+                self_update: None,
             },
             detect_binaries: vec!["sh".to_string()],
             isolation: isolation.clone(),
@@ -497,6 +508,7 @@ seed_files = []
             package: PackageSpec::BunxInstaller {
                 package: "oh-my-bunsh".to_string(),
                 args: Vec::new(),
+                self_update: None,
             },
             detect_binaries: vec!["sh".to_string()],
             isolation,
@@ -532,6 +544,7 @@ seed_files = []
             target_runtime_shared_state: None,
             package: PackageSpec::PythonTool {
                 package: "python-tool-package".to_string(),
+                self_update: None,
             },
             detect_binaries: vec!["python-tool-bin".to_string()],
             isolation,
@@ -565,6 +578,7 @@ seed_files = []
         let spec = PackageSpec::NpxInstaller {
             package: pkg.to_string(),
             args: Vec::new(),
+            self_update: None,
         };
         let result = package_cache_installed_at(tmp.path(), &spec);
 
@@ -578,6 +592,7 @@ seed_files = []
         let spec = PackageSpec::NpxInstaller {
             package: "ghost-pkg".to_string(),
             args: Vec::new(),
+            self_update: None,
         };
         assert!(package_cache_installed_at(tmp.path(), &spec).is_none());
     }
@@ -597,6 +612,7 @@ seed_files = []
         let spec = PackageSpec::BunxInstaller {
             package: pkg.to_string(),
             args: Vec::new(),
+            self_update: None,
         };
         let result = package_cache_installed_at(tmp.path(), &spec);
         assert!(result
@@ -619,6 +635,7 @@ seed_files = []
         let spec = PackageSpec::BunxInstaller {
             package: pkg.to_string(),
             args: Vec::new(),
+            self_update: None,
         };
         let result = package_cache_installed_at(tmp.path(), &spec);
         assert!(result.is_some());
@@ -640,6 +657,7 @@ seed_files = []
         let spec = PackageSpec::BunxInstaller {
             package: pkg.to_string(),
             args: Vec::new(),
+            self_update: None,
         };
         let result = package_cache_installed_at(tmp.path(), &spec);
 
@@ -662,6 +680,7 @@ seed_files = []
         let spec = PackageSpec::BunxInstaller {
             package: "test-only-bunx-pkg".to_string(),
             args: Vec::new(),
+            self_update: None,
         };
         assert!(package_cache_installed_at(tmp.path(), &spec).is_none());
     }
@@ -672,15 +691,19 @@ seed_files = []
         for spec in [
             PackageSpec::NpmGlobal {
                 package: "p".to_string(),
+                self_update: None,
             },
             PackageSpec::NpmIsolated {
                 package: "p".to_string(),
+                self_update: None,
             },
             PackageSpec::PythonTool {
                 package: "p".to_string(),
+                self_update: None,
             },
             PackageSpec::Manual {
                 instructions: "x".to_string(),
+                self_update: None,
             },
         ] {
             assert!(
@@ -701,6 +724,7 @@ seed_files = []
             target_runtime_shared_state: None,
             package: PackageSpec::NpmIsolated {
                 package: "iso-sh-pkg".to_string(),
+                self_update: None,
             },
             detect_binaries: vec!["sh".to_string()],
             isolation: empty_iso("iso-sh"),

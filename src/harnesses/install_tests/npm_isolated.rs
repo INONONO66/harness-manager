@@ -21,6 +21,7 @@ fn cmd_env_value(cmd: &Command, name: &str) -> Option<String> {
 fn build_install_npm_isolated_uses_npm_install_g() {
     let spec = PackageSpec::NpmIsolated {
         package: "demo-package".to_string(),
+        self_update: None,
     };
     let cmd = build_install_cmd(&spec).unwrap();
     let args = cmd_to_args(&cmd);
@@ -31,6 +32,7 @@ fn build_install_npm_isolated_uses_npm_install_g() {
 fn build_uninstall_npm_isolated_uses_npm_uninstall_g() {
     let spec = PackageSpec::NpmIsolated {
         package: "demo-package".to_string(),
+        self_update: None,
     };
     let cmd = build_uninstall_cmd(&spec).unwrap();
     let args = cmd_to_args(&cmd);
@@ -48,6 +50,7 @@ fn apply_npm_isolated_env_sets_prefix_and_cache_under_isolation() {
 
     let isolated = PackageSpec::NpmIsolated {
         package: "demo".to_string(),
+        self_update: None,
     };
     apply_npm_isolated_env(&mut cmd, &isolated, &paths);
 
@@ -82,6 +85,7 @@ fn omx_install_command_uses_isolated_codex_home_and_npm_prefix() {
     // Given: the real bundled omx spec and a temp isolation root.
     let mut cmd = build_install_cmd(&PackageSpec::NpmIsolated {
         package: "oh-my-codex".to_string(),
+        self_update: None,
     })
     .unwrap();
     let registry = builtin_registry();
@@ -141,6 +145,7 @@ fn apply_npm_isolated_env_is_no_op_for_npm_global() {
 
     let global = PackageSpec::NpmGlobal {
         package: "demo".to_string(),
+        self_update: None,
     };
     apply_npm_isolated_env(&mut cmd, &global, &paths);
 

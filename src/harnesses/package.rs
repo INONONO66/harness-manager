@@ -4,51 +4,51 @@ use super::types::PackageSpec;
 
 pub(super) fn build_install_cmd(spec: &PackageSpec) -> Option<Command> {
     match spec {
-        PackageSpec::NpmGlobal { package } | PackageSpec::NpmIsolated { package } => {
+        PackageSpec::NpmGlobal { package, .. } | PackageSpec::NpmIsolated { package, .. } => {
             let mut cmd = Command::new("npm");
             cmd.args(["install", "-g", package]);
             Some(cmd)
         }
-        PackageSpec::NpxInstaller { package, args } => {
+        PackageSpec::NpxInstaller { package, args, .. } => {
             let mut cmd = Command::new("npx");
             cmd.args(["--yes", package]);
             cmd.args(args);
             Some(cmd)
         }
-        PackageSpec::BunxInstaller { package, args } => build_bunx_cmd(package, args),
-        PackageSpec::PythonTool { package } => build_python_install_cmd(package),
+        PackageSpec::BunxInstaller { package, args, .. } => build_bunx_cmd(package, args),
+        PackageSpec::PythonTool { package, .. } => build_python_install_cmd(package),
         PackageSpec::Manual { .. } => None,
     }
 }
 
 pub(super) fn build_update_cmd(spec: &PackageSpec) -> Option<Command> {
     match spec {
-        PackageSpec::NpmGlobal { package } | PackageSpec::NpmIsolated { package } => {
+        PackageSpec::NpmGlobal { package, .. } | PackageSpec::NpmIsolated { package, .. } => {
             let mut cmd = Command::new("npm");
             cmd.args(["update", "-g", package]);
             Some(cmd)
         }
-        PackageSpec::NpxInstaller { package, args } => {
+        PackageSpec::NpxInstaller { package, args, .. } => {
             let mut cmd = Command::new("npx");
             cmd.args(["--yes", package]);
             cmd.args(args);
             Some(cmd)
         }
-        PackageSpec::BunxInstaller { package, args } => build_bunx_cmd(package, args),
-        PackageSpec::PythonTool { package } => build_python_update_cmd(package),
+        PackageSpec::BunxInstaller { package, args, .. } => build_bunx_cmd(package, args),
+        PackageSpec::PythonTool { package, .. } => build_python_update_cmd(package),
         PackageSpec::Manual { .. } => None,
     }
 }
 
 pub(super) fn build_uninstall_cmd(spec: &PackageSpec) -> Option<Command> {
     match spec {
-        PackageSpec::NpmGlobal { package } | PackageSpec::NpmIsolated { package } => {
+        PackageSpec::NpmGlobal { package, .. } | PackageSpec::NpmIsolated { package, .. } => {
             let mut cmd = Command::new("npm");
             cmd.args(["uninstall", "-g", package]);
             Some(cmd)
         }
         PackageSpec::NpxInstaller { .. } | PackageSpec::BunxInstaller { .. } => None,
-        PackageSpec::PythonTool { package } => build_python_uninstall_cmd(package),
+        PackageSpec::PythonTool { package, .. } => build_python_uninstall_cmd(package),
         PackageSpec::Manual { .. } => None,
     }
 }

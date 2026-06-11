@@ -49,6 +49,7 @@ fn harness_install_package_with_alias_writes_manifest_and_installs() {
     assert!(manifest.contains("id = \"pkg-demo\""));
     assert!(manifest.contains("target_runtime = \"Codex CLI\""));
     assert!(manifest.contains("kind = \"npm-global\""));
+    assert!(manifest.contains("self_update = \"managed-by-hm\""));
     assert_eq!(
         fs::read_to_string(npm_log).unwrap(),
         "install\n-g\ndemo-package\n"
