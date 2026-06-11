@@ -80,6 +80,25 @@ fn bundled_codex_harnesses_use_harness_local_runtime_home() {
 }
 
 #[test]
+fn omx_harness_disables_self_update() {
+    // Given: the bundled omx manifest redirects Codex and OMX state.
+    let specs = builtin_specs().expect("builtins parse");
+    let spec = specs
+        .iter()
+        .find(|spec| spec.id == "omx")
+        .expect("omx builtin exists");
+
+    // When/Then: omx disables its own updater so hm owns updates.
+    assert!(
+        spec.isolation
+            .static_envs
+            .iter()
+            .any(|(key, value)| key == "OMX_AUTO_UPDATE" && value == "0"),
+        "omx must disable wrapper self-update while launched through hm"
+    );
+}
+
+#[test]
 fn bundled_opencode_harnesses_use_harness_local_runtime_home() {
     // Given: bundled manifests that target OpenCode.
     let specs = builtin_specs().expect("builtins parse");
