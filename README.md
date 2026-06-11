@@ -42,6 +42,10 @@ $ hm harness list
 
 ## Install
 
+Supported platforms: macOS and Linux. Windows is not supported because `hm`
+uses Unix process exec semantics and Unix filesystem permissions for launch,
+isolation, and secret handling.
+
 ```bash
 cargo install --path .
 ```

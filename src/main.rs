@@ -1,18 +1,38 @@
+#[cfg(windows)]
+compile_error!("hm supports macOS and Linux only; Windows is not supported.");
+
+#[cfg(windows)]
+fn main() {}
+
+#[cfg(not(windows))]
 mod auth;
+#[cfg(not(windows))]
 mod cli;
+#[cfg(not(windows))]
 mod config;
+#[cfg(not(windows))]
 mod detect;
+#[cfg(not(windows))]
 mod harnesses;
+#[cfg(not(windows))]
 mod init;
+#[cfg(not(windows))]
 mod inject;
+#[cfg(not(windows))]
 mod isolation;
+#[cfg(not(windows))]
 mod launch;
+#[cfg(not(windows))]
 mod runtimes;
+#[cfg(not(windows))]
 mod secrets;
 
+#[cfg(not(windows))]
 use clap::Parser;
+#[cfg(not(windows))]
 use cli::{AuthAction, Cli, Commands, HarnessAction, InjectAction, PackageKindArg, SecretAction};
 
+#[cfg(not(windows))]
 fn harness_labels(registry: &harnesses::registry::HarnessRegistry) -> String {
     registry
         .specs()
@@ -28,6 +48,7 @@ fn harness_labels(registry: &harnesses::registry::HarnessRegistry) -> String {
         .join(", ")
 }
 
+#[cfg(not(windows))]
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -198,6 +219,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(not(windows))]
 fn package_kind(kind: PackageKindArg) -> harnesses::source::GeneratedPackageKind {
     match kind {
         PackageKindArg::NpmGlobal => harnesses::source::GeneratedPackageKind::NpmGlobal,
