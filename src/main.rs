@@ -11,7 +11,7 @@ mod runtimes;
 mod secrets;
 
 use clap::Parser;
-use cli::{AuthAction, Cli, Commands, HarnessAction, InjectAction, SecretAction};
+use cli::{AuthAction, Cli, Commands, HarnessAction, InjectAction, PackageKindArg, SecretAction};
 
 fn harness_labels(registry: &harnesses::registry::HarnessRegistry) -> String {
     registry
@@ -50,9 +50,64 @@ fn main() -> anyhow::Result<()> {
                 let detected = harnesses::detect::detect_all(&registry);
                 harnesses::detect::render_table(&detected);
             }
-            HarnessAction::Install { name } => {
+            HarnessAction::Add { source, alias } => {
+                let data_home = harnesses::source::data_home_from_process()?;
+                let added =
+                    harnesses::source::add_harness_source(&source, &alias, &data_home, &runtimes)?;
+                eprintln!(
+                    "Added harness '{}' from {} at {}",
+                    added.alias(),
+                    source,
+                    added.manifest_path().display()
+                );
+            }
+            HarnessAction::Install { name, alias } => {
+                let name = if let Some(alias) = alias {
+                    let data_home = harnesses::source::data_home_from_process()?;
+                    let added = harnesses::source::add_harness_source(
+                        &name, &alias, &data_home, &runtimes,
+                    )?;
+                    eprintln!(
+                        "Added harness '{}' from {} at {}",
+                        added.alias(),
+                        name,
+                        added.manifest_path().display()
+                    );
+                    alias
+                } else {
+                    name
+                };
                 let registry = harnesses::load_registry(&runtimes)?;
                 harnesses::install::install(&registry, &name)?;
+            }
+            HarnessAction::InstallPackage {
+                package,
+                alias,
+                runtime,
+                kind,
+                binary,
+            } => {
+                let target_runtime = runtimes.find(&runtime).ok_or_else(|| {
+                    anyhow::anyhow!("unknown runtime '{}' for generated harness", runtime)
+                })?;
+                let data_home = harnesses::source::data_home_from_process()?;
+                let generated = harnesses::source::GeneratedHarnessPackage {
+                    package: &package,
+                    alias: &alias,
+                    runtime: &target_runtime.name,
+                    kind: package_kind(kind),
+                    binary: &binary,
+                    target_isolation: target_runtime.isolation.as_ref(),
+                };
+                let added =
+                    harnesses::source::add_package_harness(&generated, &data_home, &runtimes)?;
+                eprintln!(
+                    "Added harness '{}' at {}",
+                    added.alias(),
+                    added.manifest_path().display()
+                );
+                let registry = harnesses::load_registry(&runtimes)?;
+                harnesses::install::install(&registry, added.alias())?;
             }
             HarnessAction::Update { name } => {
                 let registry = harnesses::load_registry(&runtimes)?;
@@ -141,4 +196,14 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn package_kind(kind: PackageKindArg) -> harnesses::source::GeneratedPackageKind {
+    match kind {
+        PackageKindArg::NpmGlobal => harnesses::source::GeneratedPackageKind::NpmGlobal,
+        PackageKindArg::NpmIsolated => harnesses::source::GeneratedPackageKind::NpmIsolated,
+        PackageKindArg::NpxInstaller => harnesses::source::GeneratedPackageKind::NpxInstaller,
+        PackageKindArg::BunxInstaller => harnesses::source::GeneratedPackageKind::BunxInstaller,
+        PackageKindArg::PythonTool => harnesses::source::GeneratedPackageKind::PythonTool,
+    }
 }

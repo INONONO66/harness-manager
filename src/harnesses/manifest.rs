@@ -7,7 +7,7 @@ use crate::isolation::spec::{IsolationPlan, SeedFilePlan};
 use crate::runtimes::manifest::SharedStatePlan;
 use crate::runtimes::registry::RuntimeRegistry;
 
-mod validation;
+pub(crate) mod validation;
 
 use validation::{
     ensure, parse_mode, validate_args, validate_binary_name, validate_env_key, validate_id,

@@ -17,7 +17,7 @@ pub(super) fn ensure(condition: bool, path_label: &str, field: &str) -> Result<(
     bail!("{path_label}: invalid {field}")
 }
 
-pub(super) fn validate_id(path_label: &str, id: &str) -> Result<()> {
+pub(crate) fn validate_id(path_label: &str, id: &str) -> Result<()> {
     let mut chars = id.chars();
     let Some(first) = chars.next() else {
         bail!("{path_label}: invalid id");
@@ -32,7 +32,7 @@ pub(super) fn validate_id(path_label: &str, id: &str) -> Result<()> {
     )
 }
 
-pub(super) fn validate_binary_name(path_label: &str, field: &str, value: &str) -> Result<()> {
+pub(crate) fn validate_binary_name(path_label: &str, field: &str, value: &str) -> Result<()> {
     ensure(!value.is_empty(), path_label, field)?;
     ensure(!has_control(value), path_label, field)?;
     ensure(!value.contains(['/', '\\']), path_label, field)?;
@@ -119,7 +119,7 @@ pub(super) fn validate_template_value(path_label: &str, field: &str, value: &str
     Ok(())
 }
 
-pub(super) fn validate_package_name(path_label: &str, field: &str, value: &str) -> Result<()> {
+pub(crate) fn validate_package_name(path_label: &str, field: &str, value: &str) -> Result<()> {
     validate_package_common(path_label, field, value)?;
     let valid = if let Some((scope, name)) = value.strip_prefix('@').and_then(|v| v.split_once('/'))
     {
@@ -130,7 +130,7 @@ pub(super) fn validate_package_name(path_label: &str, field: &str, value: &str) 
     ensure(valid, path_label, field)
 }
 
-pub(super) fn validate_python_package_name(
+pub(crate) fn validate_python_package_name(
     path_label: &str,
     field: &str,
     value: &str,
