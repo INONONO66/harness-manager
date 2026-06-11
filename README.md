@@ -101,6 +101,9 @@ Harnesses are wrappers or extensions that sit on top of runtimes. Builtins and u
 ```bash
 hm harness list
 hm harness install <harness-id>
+hm harness install <git-url-or-path> --alias <harness-id>
+hm harness install-package <package> --alias <harness-id> --runtime codex --kind npm-global --binary <bin>
+hm harness add <git-url-or-path> --alias <harness-id>
 hm harness update <harness-id>
 hm harness remove <harness-id>
 hm harness remove <harness-id> --purge
@@ -108,7 +111,38 @@ hm use <harness-id> --profile proxy
 hm <harness-id> -- --help
 ```
 
-Drop a manifest into one of these locations:
+Install directly from a plugin repository when it contains `harness.toml` at
+the repository root:
+
+```bash
+hm harness install https://github.com/example/my-harness --alias my-harness
+hm use my-harness -- --help
+```
+
+Or register it without installing yet:
+
+```bash
+hm harness add https://github.com/example/my-harness --alias my-harness
+hm harness install my-harness
+```
+
+For simple package-backed harnesses, generate the manifest and install in one
+step:
+
+```bash
+hm harness install-package my-harness-package \
+  --alias my-harness \
+  --runtime codex \
+  --kind npm-global \
+  --binary my-harness
+```
+
+`hm` stores the repository under the plugin discovery path and rewrites the
+manifest command id to the alias you chose. The runtime shared-state policy
+comes from the target runtime manifest; users do not edit `[shared_state]` in
+harness manifests.
+
+You can also drop a manifest into one of these locations:
 
 ```text
 $XDG_CONFIG_HOME/hm/harnesses.d/*.toml
