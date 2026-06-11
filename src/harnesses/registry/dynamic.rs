@@ -9,6 +9,8 @@ use crate::harnesses::builtin::BUILTIN_MANIFESTS;
 use crate::harnesses::manifest::{parse_toml, ManifestHarnessSpec};
 use crate::runtimes::registry::RuntimeRegistry;
 
+const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ManifestOrigin {
     Builtin,
@@ -181,6 +183,7 @@ impl HarnessSource {
             #[cfg(test)]
             Self::Manifest { label, content } => Ok(vec![(label.clone(), content.clone())]),
             Self::File(path) => {
+                ensure_manifest_size(path)?;
                 let content = fs::read_to_string(path).with_context(|| {
                     format!("failed to read harness manifest {}", path.display())
                 })?;
@@ -188,6 +191,15 @@ impl HarnessSource {
             }
         }
     }
+}
+
+fn ensure_manifest_size(path: &Path) -> Result<()> {
+    let metadata = fs::metadata(path)
+        .with_context(|| format!("failed to stat harness manifest {}", path.display()))?;
+    if metadata.len() > MAX_MANIFEST_BYTES {
+        anyhow::bail!("{}: harness manifest exceeds 64 KiB", path.display());
+    }
+    Ok(())
 }
 
 fn discover_config_sources(env: &HarnessDiscoveryEnv) -> Result<Vec<HarnessSource>> {

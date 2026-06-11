@@ -1,11 +1,13 @@
 use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
 use crate::runtimes::builtin::BUILTIN_RUNTIME_MANIFESTS;
 use crate::runtimes::manifest::RuntimeRecord;
+
+const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ManifestOrigin {
@@ -62,6 +64,7 @@ impl RuntimeSource {
             #[cfg(test)]
             Self::Manifest { label, content } => Ok(vec![(label.clone(), content.clone())]),
             Self::File(path) => {
+                ensure_manifest_size(path, "runtime")?;
                 let content = fs::read_to_string(path).with_context(|| {
                     format!("failed to read runtime manifest {}", path.display())
                 })?;
@@ -69,4 +72,13 @@ impl RuntimeSource {
             }
         }
     }
+}
+
+fn ensure_manifest_size(path: &Path, kind: &str) -> Result<()> {
+    let metadata = fs::metadata(path)
+        .with_context(|| format!("failed to stat {kind} manifest {}", path.display()))?;
+    if metadata.len() > MAX_MANIFEST_BYTES {
+        anyhow::bail!("{}: {kind} manifest exceeds 64 KiB", path.display());
+    }
+    Ok(())
 }
