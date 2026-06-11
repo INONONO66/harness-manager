@@ -431,16 +431,25 @@ fn keychain_item_exists(_service: &str) -> bool {
 fn token_to_auth_status(token: &str, label: &str) -> AuthStatus {
     let expiry = decode_jwt_expiry(token);
     match expiry {
-        Some(exp) if exp == "EXPIRED" => AuthStatus::Expired {
+        Some(JwtExpiry::Expired) => AuthStatus::Expired {
             detail: format!("{} (expired)", label),
         },
-        Some(exp) => AuthStatus::Valid {
+        Some(JwtExpiry::ExpiresSoon(exp)) => AuthStatus::ExpiresSoon {
+            detail: format!("{} ({})", label, exp),
+        },
+        Some(JwtExpiry::Valid(exp)) => AuthStatus::Valid {
             detail: format!("{} ({})", label, exp),
         },
         None => AuthStatus::Valid {
             detail: label.to_string(),
         },
     }
+}
+
+enum JwtExpiry {
+    Valid(String),
+    ExpiresSoon(String),
+    Expired,
 }
 
 fn to_camel(s: &str) -> String {
@@ -459,7 +468,7 @@ fn to_camel(s: &str) -> String {
     result
 }
 
-fn decode_jwt_expiry(token: &str) -> Option<String> {
+fn decode_jwt_expiry(token: &str) -> Option<JwtExpiry> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
         return None;
@@ -482,19 +491,25 @@ fn decode_jwt_expiry(token: &str) -> Option<String> {
         .as_secs();
 
     if exp < now {
-        return Some("EXPIRED".to_string());
+        return Some(JwtExpiry::Expired);
     }
 
     let remaining = exp - now;
     let days = remaining / 86400;
     let hours = (remaining % 86400) / 3600;
 
-    if days > 0 {
-        Some(format!("{}d {}h left", days, hours))
+    let detail = if days > 0 {
+        format!("{}d {}h left", days, hours)
     } else if hours > 0 {
-        Some(format!("{}h left", hours))
+        format!("{}h left", hours)
     } else {
-        Some(format!("{}m left", (remaining % 3600) / 60))
+        format!("{}m left", (remaining % 3600) / 60)
+    };
+
+    if remaining < 86_400 {
+        Some(JwtExpiry::ExpiresSoon(detail))
+    } else {
+        Some(JwtExpiry::Valid(detail))
     }
 }
 
@@ -1797,6 +1812,70 @@ mod oauth_file_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
         assert!(matches!(result, Some(AuthStatus::Valid { .. })));
+    }
+}
+
+#[cfg(test)]
+mod jwt_expiry_tests {
+    use super::{token_to_auth_status, AuthStatus};
+
+    #[test]
+    fn jwt_expiring_within_one_hour_returns_expires_soon() {
+        // Given: a JWT access token that expires soon.
+        let token = jwt_with_exp_delta(600);
+
+        // When: hm classifies the auth token.
+        let status = token_to_auth_status(&token, "OAuth");
+
+        // Then: detect can render it as a warning instead of a healthy check.
+        match status {
+            AuthStatus::ExpiresSoon { detail } => {
+                assert!(
+                    detail.contains("OAuth"),
+                    "label should be retained: {detail}"
+                );
+                assert!(
+                    detail.contains("left"),
+                    "expiry detail should be retained: {detail}"
+                );
+            }
+            other => panic!("expected ExpiresSoon, got {other:?}"),
+        }
+    }
+
+    fn jwt_with_exp_delta(delta_secs: u64) -> String {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let payload = format!(r#"{{"exp":{}}}"#, now + delta_secs);
+        format!(
+            "{}.{}.{}",
+            base64_url(r#"{"alg":"none"}"#),
+            base64_url(&payload),
+            "sig"
+        )
+    }
+
+    fn base64_url(input: &str) -> String {
+        const TABLE: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let bytes = input.as_bytes();
+        let mut output = String::new();
+        for chunk in bytes.chunks(3) {
+            let b0 = chunk[0];
+            let b1 = *chunk.get(1).unwrap_or(&0);
+            let b2 = *chunk.get(2).unwrap_or(&0);
+            output.push(TABLE[(b0 >> 2) as usize] as char);
+            output.push(TABLE[(((b0 & 0b0000_0011) << 4) | (b1 >> 4)) as usize] as char);
+            if chunk.len() > 1 {
+                output.push(TABLE[(((b1 & 0b0000_1111) << 2) | (b2 >> 6)) as usize] as char);
+            }
+            if chunk.len() > 2 {
+                output.push(TABLE[(b2 & 0b0011_1111) as usize] as char);
+            }
+        }
+        output.replace('+', "-").replace('/', "_")
     }
 }
 
