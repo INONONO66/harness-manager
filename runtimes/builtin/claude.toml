@@ -32,6 +32,9 @@ label = "Claude Code"
 binary = "claude"
 args = []
 
+[shared_state]
+auth_files = [".claude/.credentials.json"]
+
 [injection]
 strategy = "env"
 provider = "anthropic"

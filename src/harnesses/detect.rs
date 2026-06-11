@@ -232,6 +232,7 @@ mod tests {
             aliases: Vec::new(),
             display_name: "test".to_string(),
             target_runtime: "Codex CLI".to_string(),
+            target_runtime_shared_state: None,
             package: PackageSpec::Manual {
                 instructions: "".to_string(),
             },
@@ -252,6 +253,7 @@ mod tests {
             aliases: Vec::new(),
             display_name: "test".to_string(),
             target_runtime: "Codex CLI".to_string(),
+            target_runtime_shared_state: None,
             package: PackageSpec::Manual {
                 instructions: "".to_string(),
             },
@@ -384,6 +386,7 @@ seed_files = []
             aliases: Vec::new(),
             display_name: "lazysh".to_string(),
             target_runtime: "shell".to_string(),
+            target_runtime_shared_state: None,
             package: PackageSpec::NpxInstaller {
                 package: "lazysh-ai".to_string(),
                 args: Vec::new(),
@@ -418,6 +421,7 @@ seed_files = []
             aliases: Vec::new(),
             display_name: "lazysh".to_string(),
             target_runtime: "shell".to_string(),
+            target_runtime_shared_state: None,
             package: PackageSpec::NpxInstaller {
                 package: "lazysh-ai".to_string(),
                 args: Vec::new(),
@@ -453,6 +457,7 @@ seed_files = []
             aliases: Vec::new(),
             display_name: "bunsh".to_string(),
             target_runtime: "shell".to_string(),
+            target_runtime_shared_state: None,
             package: PackageSpec::BunxInstaller {
                 package: "oh-my-bunsh".to_string(),
                 args: Vec::new(),
@@ -488,6 +493,7 @@ seed_files = []
             aliases: Vec::new(),
             display_name: "bunsh".to_string(),
             target_runtime: "shell".to_string(),
+            target_runtime_shared_state: None,
             package: PackageSpec::BunxInstaller {
                 package: "oh-my-bunsh".to_string(),
                 args: Vec::new(),
@@ -523,6 +529,7 @@ seed_files = []
             aliases: Vec::new(),
             display_name: "python-tool-harness".to_string(),
             target_runtime: "shell".to_string(),
+            target_runtime_shared_state: None,
             package: PackageSpec::PythonTool {
                 package: "python-tool-package".to_string(),
             },
@@ -691,6 +698,7 @@ seed_files = []
             aliases: Vec::new(),
             display_name: "iso-sh".to_string(),
             target_runtime: "shell".to_string(),
+            target_runtime_shared_state: None,
             package: PackageSpec::NpmIsolated {
                 package: "iso-sh-pkg".to_string(),
             },
