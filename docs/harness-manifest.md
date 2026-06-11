@@ -20,6 +20,29 @@ mkdir -p ~/.local/share/hm/plugins/my-plugin
 $EDITOR ~/.local/share/hm/plugins/my-plugin/harness.toml
 ```
 
+For a git repository that already ships `harness.toml` at its root:
+
+```bash
+hm harness install https://github.com/example/my-plugin --alias my-plugin
+```
+
+To only register the source and install later:
+
+```bash
+hm harness add https://github.com/example/my-plugin --alias my-plugin
+hm harness install my-plugin
+```
+
+For package-backed harnesses that do not ship a repository manifest yet:
+
+```bash
+hm harness install-package my-plugin-package \
+  --alias my-plugin \
+  --runtime codex \
+  --kind npm-global \
+  --binary my-plugin
+```
+
 Discovery paths:
 
 ```text
