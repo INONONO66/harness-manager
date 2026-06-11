@@ -66,34 +66,36 @@ pub struct ResolvedGateway {
     pub provider_headers: HashMap<String, HashMap<String, String>>,
 }
 
-fn config_path_from(xdg_config_home: Option<&PathBuf>, home: Option<&PathBuf>) -> PathBuf {
+fn config_path_from(xdg_config_home: Option<&PathBuf>, home: Option<&PathBuf>) -> Option<PathBuf> {
     if let Some(config_dir) = xdg_config_home.filter(|p| !p.as_os_str().is_empty()) {
         let p = config_dir.join("hm").join("config.toml");
-        return p;
+        return Some(p);
     }
     if let Some(config_dir) = dirs::config_dir() {
         let p = config_dir.join("hm").join("config.toml");
         if p.is_file() {
-            return p;
+            return Some(p);
         }
     }
     if let Some(home) = home {
         let p = home.join(".config").join("hm").join("config.toml");
         if p.is_file() {
-            return p;
+            return Some(p);
         }
     }
-    PathBuf::from("~/.config/hm/config.toml")
+    None
 }
 
-fn config_path() -> PathBuf {
+fn config_path() -> Option<PathBuf> {
     let xdg_config_home = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
     let home = dirs::home_dir();
     config_path_from(xdg_config_home.as_ref(), home.as_ref())
 }
 
 pub fn load_config() -> anyhow::Result<HmConfig> {
-    let path = config_path();
+    let Some(path) = config_path() else {
+        return Ok(HmConfig::default());
+    };
     if !path.is_file() {
         return Ok(HmConfig::default());
     }
@@ -197,7 +199,7 @@ mod tests {
 
         let resolved = config_path_from(Some(&config_dir), None);
 
-        assert_eq!(resolved, path);
+        assert_eq!(resolved, Some(path));
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -213,7 +215,25 @@ mod tests {
 
         let resolved = config_path_from(Some(&config_dir), Some(&home));
 
-        assert_eq!(resolved, config_dir.join("hm/config.toml"));
+        assert_eq!(resolved, Some(config_dir.join("hm/config.toml")));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn config_path_uses_explicit_xdg_config_even_when_file_is_missing() {
+        // Given: XDG_CONFIG_HOME is explicit but hm/config.toml does not exist.
+        let base =
+            std::env::temp_dir().join(format!("hm-config-load-missing-{}", std::process::id()));
+        let config_dir = base.join("xdg-config");
+        let home = base.join("home");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+
+        // When: hm loads config through that explicit XDG root.
+        let path = config_path_from(Some(&config_dir), Some(&home));
+
+        // Then: the path is concrete, and absence remains a default-config case.
+        assert_eq!(path, Some(config_dir.join("hm/config.toml")));
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -231,11 +251,25 @@ mod tests {
         let resolved = config_path_from(Some(&empty_xdg), Some(&home));
 
         assert_eq!(
-            resolved, home_path,
+            resolved,
+            Some(home_path),
             "empty XDG_CONFIG_HOME must fall back to home/.config/hm/config.toml, not 'hm/config.toml' relative"
         );
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn config_path_returns_none_when_no_anchor_exists() {
+        // Given: there is no XDG config root and no home directory.
+        let no_config_root = None;
+        let no_home = None;
+
+        // When: hm resolves the config path.
+        let resolved = config_path_from(no_config_root, no_home);
+
+        // Then: it reports absence instead of returning a literal "~" path.
+        assert_eq!(resolved, None);
     }
 
     #[test]

@@ -150,6 +150,47 @@ fn broken_default_profile_fails_without_creating_isolation_directories() {
 }
 
 #[test]
+fn missing_explicit_xdg_config_defaults_instead_of_reading_missing_file() {
+    let suite = unique_suite("missing-explicit-xdg-config");
+    let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
+    let tmp_data = std::env::temp_dir().join(format!("{suite}-data"));
+    let tmp_home = std::env::temp_dir().join(format!("{suite}-home"));
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+    std::fs::create_dir_all(&tmp_cfg).unwrap();
+    std::fs::create_dir_all(&tmp_data).unwrap();
+    std::fs::create_dir_all(&tmp_home).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_hm"))
+        .args(["inject", "plan", "codex", "--profile", "missing"])
+        .env("XDG_CONFIG_HOME", &tmp_cfg)
+        .env("XDG_DATA_HOME", &tmp_data)
+        .env("HOME", &tmp_home)
+        .output()
+        .expect("spawn hm");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+
+    assert!(
+        !output.status.success(),
+        "missing profile should fail against default config"
+    );
+    assert!(
+        stderr.contains("profile 'missing' not found in config"),
+        "expected default-config profile error, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("failed to read config"),
+        "missing explicit XDG config must not be treated as unreadable: {stderr}"
+    );
+}
+
+#[test]
 fn config_parse_failure_fails_without_creating_isolation_directories() {
     let suite = unique_suite("bad-config-syntax");
     let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
