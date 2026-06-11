@@ -1,14 +1,19 @@
+use std::fs;
 use std::process::Command;
 
 use anyhow::{bail, Context};
 use colored::Colorize;
 
-use super::package::{build_install_cmd, build_uninstall_cmd, build_update_cmd};
+use super::package::{
+    build_install_cmd, build_uninstall_cmd_with_manager, build_update_cmd_with_manager,
+};
 use super::registry::HarnessRegistry;
 use super::types::{HarnessSpec, PackageSpec};
 use crate::isolation::spec::IsolationRecipe;
 use crate::isolation::{self, IsolationLockGuard, IsolationPaths};
 use crate::runtimes::manifest::SharedStatePlan;
+
+const PACKAGE_MANAGER_STATE_FILE: &str = "package-manager";
 
 fn apply_isolation_env(
     cmd: &mut Command,
@@ -132,7 +137,11 @@ pub fn install(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
         &paths,
     )?;
     apply_npm_isolated_env(&mut cmd, &spec.package, &paths);
+    let manager = command_program_name(&cmd);
     run_cmd(cmd, "install", id)?;
+    if let Some(manager) = manager {
+        record_package_manager(&paths, &manager)?;
+    }
 
     eprintln!(
         "{} harness '{}' installed successfully",
@@ -154,10 +163,11 @@ pub fn update(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
         spec.display_name
     );
 
-    let mut cmd = build_update_cmd(&spec.package)
+    let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
+    let preferred_manager = read_package_manager(&paths);
+    let mut cmd = build_update_cmd_with_manager(&spec.package, preferred_manager.as_deref())
         .ok_or_else(|| anyhow::anyhow!("no suitable package manager found for harness '{}'", id))?;
 
-    let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
     let _lock = IsolationLockGuard::acquire(&paths)?;
     apply_isolation_env(
         &mut cmd,
@@ -188,7 +198,9 @@ pub fn remove(registry: &HarnessRegistry, id: &str, purge: bool) -> anyhow::Resu
     let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
     let _lock = IsolationLockGuard::acquire(&paths)?;
 
-    if let Some(cmd) = build_uninstall_cmd(&spec.package) {
+    let preferred_manager = read_package_manager(&paths);
+    if let Some(cmd) = build_uninstall_cmd_with_manager(&spec.package, preferred_manager.as_deref())
+    {
         // Best-effort uninstall — don't fail if the package wasn't installed
         let mut cmd = cmd;
         apply_isolation_env(
@@ -214,6 +226,33 @@ pub fn remove(registry: &HarnessRegistry, id: &str, purge: bool) -> anyhow::Resu
         spec.display_name
     );
     Ok(())
+}
+
+fn package_manager_state_path(paths: &IsolationPaths) -> std::path::PathBuf {
+    paths.state.join(PACKAGE_MANAGER_STATE_FILE)
+}
+
+fn command_program_name(cmd: &Command) -> Option<String> {
+    std::path::Path::new(cmd.get_program())
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+}
+
+fn record_package_manager(paths: &IsolationPaths, manager: &str) -> anyhow::Result<()> {
+    fs::create_dir_all(&paths.state)
+        .with_context(|| format!("create {}", paths.state.display()))?;
+    fs::write(package_manager_state_path(paths), format!("{manager}\n"))
+        .with_context(|| "record package manager")
+}
+
+fn read_package_manager(paths: &IsolationPaths) -> Option<String> {
+    let raw = fs::read_to_string(package_manager_state_path(paths)).ok()?;
+    let manager = raw.trim();
+    if manager.is_empty() {
+        None
+    } else {
+        Some(manager.to_string())
+    }
 }
 
 #[cfg(test)]

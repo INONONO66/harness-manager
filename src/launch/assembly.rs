@@ -8,7 +8,6 @@ use super::profile::{apply_profile, apply_proxy_env};
 use super::target::{build_launch_env, resolve_target, runtime_isolation_plan, LaunchTarget};
 use crate::config;
 use crate::harnesses::registry::HarnessRegistry;
-use crate::harnesses::types::PackageSpec;
 use crate::isolation;
 use crate::isolation::spec::{IsolationPlan, IsolationRecipe};
 use crate::runtimes::registry::RuntimeRegistry;
@@ -66,7 +65,7 @@ pub fn assemble_use_env(
     };
 
     let binary_override = isolated_package_binary_override(
-        selected.isolated_package_binary_path,
+        selected.isolated_package_binary_path.as_deref(),
         &iso_paths,
         &mut env,
         &selected.binary_names,
@@ -92,19 +91,13 @@ pub fn assemble_use_env(
     })
 }
 
-#[derive(Clone, Copy)]
-enum IsolatedPackageBinaryPath {
-    Npm,
-    PythonTool,
-}
-
 struct SelectedTarget<'a> {
     runtime: &'a crate::runtimes::manifest::RuntimeRecord,
     isolation: Option<IsolationPlan>,
     binary_names: Vec<String>,
     display_name: String,
     launch_args: Vec<String>,
-    isolated_package_binary_path: Option<IsolatedPackageBinaryPath>,
+    isolated_package_binary_path: Option<String>,
 }
 
 fn select_target<'a>(
@@ -112,14 +105,9 @@ fn select_target<'a>(
     allow_keychain: bool,
 ) -> anyhow::Result<SelectedTarget<'a>> {
     let isolated_package_binary_path = match &target {
-        LaunchTarget::Harness { harness, .. } => match &harness.package {
-            PackageSpec::NpmIsolated { .. } => Some(IsolatedPackageBinaryPath::Npm),
-            PackageSpec::PythonTool { .. } => Some(IsolatedPackageBinaryPath::PythonTool),
-            PackageSpec::NpmGlobal { .. }
-            | PackageSpec::NpxInstaller { .. }
-            | PackageSpec::BunxInstaller { .. }
-            | PackageSpec::Manual { .. } => None,
-        },
+        LaunchTarget::Harness { harness, .. } => {
+            harness.package.bin_subdir().map(ToString::to_string)
+        }
         LaunchTarget::Runtime(_) => None,
     };
 
@@ -189,17 +177,14 @@ fn prepare_isolation(
 }
 
 fn isolated_package_binary_override(
-    kind: Option<IsolatedPackageBinaryPath>,
+    bin_subdir: Option<&str>,
     iso_paths: &Option<isolation::IsolationPaths>,
     env: &mut HashMap<String, String>,
     binary_names: &[String],
 ) -> Option<PathBuf> {
-    let kind = kind?;
+    let bin_subdir = bin_subdir?;
     let paths = iso_paths.as_ref()?;
-    let bin_dir = match kind {
-        IsolatedPackageBinaryPath::Npm => paths.home.join(".npm").join("bin"),
-        IsolatedPackageBinaryPath::PythonTool => paths.home.join(".local").join("bin"),
-    };
+    let bin_dir = paths.home.join(bin_subdir);
     prepend_path(env, &bin_dir);
     existing_first_binary(&bin_dir, binary_names)
 }
@@ -250,10 +235,45 @@ mod tests {
         let mut env = HashMap::from([("PATH".to_string(), "/usr/bin".to_string())]);
 
         let override_path = isolated_package_binary_override(
-            Some(IsolatedPackageBinaryPath::PythonTool),
+            Some(".local/bin"),
             &iso_paths,
             &mut env,
             &["python-tool-bin".to_string()],
+        );
+
+        assert_eq!(override_path, Some(binary));
+        assert_eq!(
+            env.get("PATH").expect("PATH"),
+            &format!("{}:/usr/bin", bin_dir.to_string_lossy())
+        );
+    }
+
+    #[test]
+    fn declared_bin_subdir_override_adds_custom_bin_dir() {
+        let tmp = tempdir().expect("tempdir");
+        let home = tmp.path().join("home");
+        let bin_dir = home.join(".custom").join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("create bin dir");
+        let binary = bin_dir.join("custom-tool");
+        std::fs::write(&binary, "#!/bin/sh\n").expect("write binary");
+
+        let iso_paths = Some(isolation::IsolationPaths {
+            base: tmp.path().join("base"),
+            home,
+            state: tmp.path().join("state"),
+            tmp: tmp.path().join("tmp"),
+            runtime_base: tmp.path().join("runtime-base"),
+            runtime_home: tmp.path().join("runtime-home"),
+            runtime_state: tmp.path().join("runtime-state"),
+            runtime_logs: tmp.path().join("runtime-logs"),
+        });
+        let mut env = HashMap::from([("PATH".to_string(), "/usr/bin".to_string())]);
+
+        let override_path = isolated_package_binary_override(
+            Some(".custom/bin"),
+            &iso_paths,
+            &mut env,
+            &["custom-tool".to_string()],
         );
 
         assert_eq!(override_path, Some(binary));

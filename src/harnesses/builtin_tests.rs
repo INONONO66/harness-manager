@@ -30,6 +30,7 @@ fn builtin_manifests_have_usable_package_strategies() {
             !package.is_empty() && !args.iter().any(String::is_empty)
         }
         ManifestPackageSpec::Manual { instructions, .. } => !instructions.is_empty(),
+        ManifestPackageSpec::Custom { install, .. } => !install.argv.is_empty(),
     });
 
     // Then: each bundled package strategy carries the command payload it needs.

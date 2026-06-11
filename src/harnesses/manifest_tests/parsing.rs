@@ -68,3 +68,42 @@ fn manifest_parses_default_launch_args() {
     assert!(defaulted.launch_args.is_empty());
     assert_eq!(explicit.launch_args, vec!["run", "--fast"]);
 }
+
+#[test]
+fn manifest_parses_custom_package_backend_with_bin_subdir() {
+    // Given: a manifest-owned backend described as argv arrays, not shell.
+    let input = minimal_manifest("").replace(
+        r#"[package]
+kind = "npm-global"
+package = "demo-package"
+"#,
+        r#"[package]
+kind = "custom"
+install = ["installer", "install", "demo"]
+update = ["installer", "upgrade", "demo"]
+uninstall = ["installer", "remove", "demo"]
+bin_subdir = ".custom/bin"
+self_update = "managed-by-hm"
+"#,
+    );
+
+    // When: the manifest is parsed.
+    let parsed = parse_toml("custom.toml", &input).expect("custom backend parses");
+
+    // Then: the backend stays declarative and carries its bin layout.
+    match parsed.package {
+        ManifestPackageSpec::Custom {
+            install,
+            update,
+            uninstall,
+            bin_subdir,
+            ..
+        } => {
+            assert_eq!(install.argv, vec!["installer", "install", "demo"]);
+            assert_eq!(update.unwrap().argv, vec!["installer", "upgrade", "demo"]);
+            assert_eq!(uninstall.unwrap().argv, vec!["installer", "remove", "demo"]);
+            assert_eq!(bin_subdir.as_deref(), Some(".custom/bin"));
+        }
+        other => panic!("unexpected package variant: {other:?}"),
+    }
+}

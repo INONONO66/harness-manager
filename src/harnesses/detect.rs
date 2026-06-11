@@ -21,9 +21,9 @@ pub struct DetectedHarness {
 pub fn detect_one(spec: &HarnessSpec) -> DetectedHarness {
     let binary_names: Vec<&str> = spec.detect_binaries.iter().map(String::as_str).collect();
     let binary = match &spec.package {
-        PackageSpec::NpmIsolated { .. } => detect_in_isolation_home(spec, ".npm/bin")
-            .or_else(|| crate::runtimes::find_binary(&binary_names)),
-        PackageSpec::PythonTool { .. } => detect_in_isolation_home(spec, ".local/bin")
+        package if package.bin_subdir().is_some() => package
+            .bin_subdir()
+            .and_then(|subdir| detect_in_isolation_home(spec, subdir))
             .or_else(|| crate::runtimes::find_binary(&binary_names)),
         PackageSpec::NpxInstaller { .. } | PackageSpec::BunxInstaller { .. } => {
             let cache_hit = IsolationPaths::try_from_spec(&spec.isolation)
@@ -94,6 +94,7 @@ fn format_package_source(pkg: &PackageSpec) -> String {
         PackageSpec::NpxInstaller { package, .. } => format!("npx-installer ({package})"),
         PackageSpec::BunxInstaller { package, .. } => format!("bunx-installer ({package})"),
         PackageSpec::PythonTool { package, .. } => format!("python-tool ({package})"),
+        PackageSpec::Custom { .. } => "custom".to_string(),
         PackageSpec::Manual { .. } => "manual".to_string(),
     }
 }
@@ -206,6 +207,7 @@ fn alias_label(aliases: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::harnesses::manifest::PackageCommandTemplate;
     use crate::harnesses::types::{HarnessSpec, PackageSpec};
     use crate::isolation::spec::IsolationPlan;
 
@@ -557,6 +559,44 @@ seed_files = []
             result.installed,
             "PythonTool must report installed when pipx/uv created a binary under isolated HOME/.local/bin"
         );
+        assert_eq!(result.binary_path, Some(binary));
+
+        let _ = std::fs::remove_dir_all(&paths.base);
+    }
+
+    #[test]
+    fn detect_one_custom_backend_uses_declared_bin_subdir() {
+        let subdir = unique_subdir("custom-bin");
+        let isolation = empty_iso(&subdir);
+        let paths = crate::isolation::IsolationPaths::try_from_spec(&isolation).unwrap();
+        let bin_dir = paths.home.join(".custom").join("bin");
+        let binary = bin_dir.join("custom-tool");
+        std::fs::create_dir_all(&bin_dir).expect("seed custom bin dir");
+        std::fs::write(&binary, "#!/bin/sh\n").expect("seed custom binary");
+
+        let spec = HarnessSpec {
+            id: "custom-tool".to_string(),
+            aliases: Vec::new(),
+            display_name: "custom-tool".to_string(),
+            target_runtime: "shell".to_string(),
+            target_runtime_shared_state: None,
+            package: PackageSpec::Custom {
+                install: PackageCommandTemplate {
+                    argv: vec!["installer".to_string(), "install".to_string()],
+                },
+                update: None,
+                uninstall: None,
+                bin_subdir: Some(".custom/bin".to_string()),
+                self_update: None,
+            },
+            detect_binaries: vec!["custom-tool".to_string()],
+            isolation,
+            launch_binary: Some("custom-tool".to_string()),
+            launch_args: Vec::new(),
+        };
+        let result = detect_one(&spec);
+
+        assert!(result.installed);
         assert_eq!(result.binary_path, Some(binary));
 
         let _ = std::fs::remove_dir_all(&paths.base);
