@@ -156,3 +156,42 @@ fn registry_rejects_symlink_manifest_escape() {
         "expected symlink rejection, got: {err:#}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn registry_rejects_oversized_harness_manifest_before_reading_contents() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Given: an oversized harness manifest that cannot be read by this process.
+    let temp = tempfile::tempdir().unwrap();
+    let config_root = temp.path().join("config");
+    let harness_dir = config_root.join("hm").join("harnesses.d");
+    let oversized = harness_dir.join("oversized.toml");
+    fs::create_dir_all(&harness_dir).unwrap();
+    fs::write(&oversized, "x".repeat(70 * 1024)).unwrap();
+    let mut permissions = fs::metadata(&oversized).unwrap().permissions();
+    permissions.set_mode(0o000);
+    fs::set_permissions(&oversized, permissions).unwrap();
+
+    // When: the registry discovers that manifest.
+    let runtimes = super::test_runtimes();
+    let err = HarnessRegistry::load_from_env(
+        &HarnessDiscoveryEnv {
+            xdg_config_home: Some(config_root),
+            xdg_data_home: Some(temp.path().join("data")),
+            home: Some(temp.path().join("home")),
+        },
+        &runtimes,
+    )
+    .unwrap_err();
+
+    let mut permissions = fs::metadata(&oversized).unwrap().permissions();
+    permissions.set_mode(0o600);
+    fs::set_permissions(&oversized, permissions).unwrap();
+
+    // Then: it rejects by metadata size before attempting to read contents.
+    assert!(
+        err.to_string().contains("exceeds 64 KiB"),
+        "expected pre-read size rejection, got: {err:#}"
+    );
+}
