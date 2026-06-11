@@ -42,7 +42,10 @@ pub fn run_init(force: bool, install_harnesses: bool) -> Result<()> {
         println!("\n{} all non-manual harnesses", "Installing".green().bold());
         let runtimes = RuntimeRegistry::load()?;
         let registry = HarnessRegistry::load(&runtimes)?;
-        install_all_harnesses(&registry);
+        let failed = install_all_harnesses(&registry);
+        if failed > 0 {
+            anyhow::bail!("{failed} harness install(s) failed during init --install");
+        }
     }
 
     Ok(())
@@ -123,7 +126,7 @@ fn extract_manifests(
     Ok(InitSummary { written, skipped })
 }
 
-fn install_all_harnesses(registry: &HarnessRegistry) {
+fn install_all_harnesses(registry: &HarnessRegistry) -> usize {
     let mut succeeded = Vec::new();
     let mut failed: Vec<(String, String)> = Vec::new();
     let mut manual = Vec::new();
@@ -162,6 +165,7 @@ fn install_all_harnesses(registry: &HarnessRegistry) {
             );
         }
     }
+    failed.len()
 }
 
 #[cfg(test)]
