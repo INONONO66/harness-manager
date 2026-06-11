@@ -61,6 +61,32 @@ pub enum ManifestPackageSpec {
         instructions: String,
         self_update: Option<SelfUpdatePolicy>,
     },
+    Custom {
+        install: PackageCommandTemplate,
+        update: Option<PackageCommandTemplate>,
+        uninstall: Option<PackageCommandTemplate>,
+        bin_subdir: Option<String>,
+        self_update: Option<SelfUpdatePolicy>,
+    },
+}
+
+impl ManifestPackageSpec {
+    pub fn bin_subdir(&self) -> Option<&str> {
+        match self {
+            Self::NpmIsolated { .. } => Some(".npm/bin"),
+            Self::PythonTool { .. } => Some(".local/bin"),
+            Self::Custom { bin_subdir, .. } => bin_subdir.as_deref(),
+            Self::NpmGlobal { .. }
+            | Self::NpxInstaller { .. }
+            | Self::BunxInstaller { .. }
+            | Self::Manual { .. } => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageCommandTemplate {
+    pub argv: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -129,6 +155,18 @@ enum PackageManifest {
     #[serde(rename = "manual")]
     Manual {
         instructions: String,
+        #[serde(default)]
+        self_update: Option<SelfUpdatePolicy>,
+    },
+    #[serde(rename = "custom")]
+    Custom {
+        install: Vec<String>,
+        #[serde(default)]
+        update: Option<Vec<String>>,
+        #[serde(default)]
+        uninstall: Option<Vec<String>>,
+        #[serde(default)]
+        bin_subdir: Option<String>,
         #[serde(default)]
         self_update: Option<SelfUpdatePolicy>,
     },
@@ -307,7 +345,64 @@ fn convert_package(path_label: &str, package: PackageManifest) -> Result<Manifes
                 self_update,
             }
         }
+        PackageManifest::Custom {
+            install,
+            update,
+            uninstall,
+            bin_subdir,
+            self_update,
+        } => {
+            let install = validate_command_template(path_label, "package.install", install)?;
+            let update = update
+                .map(|argv| validate_command_template(path_label, "package.update", argv))
+                .transpose()?;
+            let uninstall = uninstall
+                .map(|argv| validate_command_template(path_label, "package.uninstall", argv))
+                .transpose()?;
+            if let Some(subdir) = &bin_subdir {
+                validate_relative_path(path_label, "package.bin_subdir", subdir)?;
+            }
+            ManifestPackageSpec::Custom {
+                install,
+                update,
+                uninstall,
+                bin_subdir,
+                self_update,
+            }
+        }
     })
+}
+
+fn validate_command_template(
+    path_label: &str,
+    field: &str,
+    argv: Vec<String>,
+) -> Result<PackageCommandTemplate> {
+    ensure(!argv.is_empty(), path_label, field)?;
+    validate_binary_name(path_label, field, &argv[0])?;
+    validate_custom_program(path_label, field, &argv[0])?;
+    validate_args(path_label, field, &argv[1..])?;
+    Ok(PackageCommandTemplate { argv })
+}
+
+fn validate_custom_program(path_label: &str, field: &str, program: &str) -> Result<()> {
+    ensure(
+        !matches!(
+            program,
+            "sh" | "bash"
+                | "zsh"
+                | "fish"
+                | "dash"
+                | "ksh"
+                | "csh"
+                | "tcsh"
+                | "pwsh"
+                | "powershell"
+                | "cmd"
+        ),
+        path_label,
+        field,
+    )
 }
 
 fn convert_isolation(

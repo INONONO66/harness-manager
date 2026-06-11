@@ -132,6 +132,16 @@ self_update = "managed-by-hm"
 
 ```toml
 [package]
+kind = "custom"
+install = ["installer", "install", "my-package"]
+update = ["installer", "upgrade", "my-package"]
+uninstall = ["installer", "remove", "my-package"]
+bin_subdir = ".custom/bin"
+self_update = "managed-by-hm"
+```
+
+```toml
+[package]
 kind = "manual"
 instructions = "Install the binary with your plugin manager."
 self_update = "not-applicable"
@@ -161,6 +171,12 @@ install/update`, `suppressed-by-env` when launch-time upstream self-updaters are
 disabled through `isolation.static_envs`, and `not-applicable` for manual
 entries or packages with no self-update behavior. Bundled package-backed
 harnesses must declare this field.
+
+`package.bin_subdir`: optional relative bin directory under the isolated harness home. `npm-isolated` defaults this to `.npm/bin`; `python-tool` defaults it to `.local/bin`; `custom` may declare its own path. `hm harness list` and `hm use` use this field instead of package-kind-specific path guesses.
+
+`package.kind = "custom"`: argv-only lifecycle commands for package systems hm does not know about. `install` is required; `update` and `uninstall` are optional. The first argv element must be an executable name, not a path or shell snippet, and args are passed directly without shell expansion.
+
+After a successful install, hm records the resolved package manager under the harness isolation state and prefers it during update/remove. This keeps fallback chains such as `uv -> pipx -> pip -> pip3` and `bunx -> npx` stable across lifecycle commands.
 
 `isolation.subdir`: optional runtime directory name. Defaults to `id`.
 

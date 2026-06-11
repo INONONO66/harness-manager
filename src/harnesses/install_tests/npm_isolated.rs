@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use crate::harnesses::package::{build_install_cmd, build_uninstall_cmd};
+use crate::harnesses::package::{build_install_cmd, build_uninstall_cmd_with_manager};
 use crate::harnesses::types::PackageSpec;
 
 use super::{
@@ -34,7 +34,7 @@ fn build_uninstall_npm_isolated_uses_npm_uninstall_g() {
         package: "demo-package".to_string(),
         self_update: None,
     };
-    let cmd = build_uninstall_cmd(&spec).unwrap();
+    let cmd = build_uninstall_cmd_with_manager(&spec, None).unwrap();
     let args = cmd_to_args(&cmd);
     assert_eq!(args, vec!["npm", "uninstall", "-g", "demo-package"]);
 }

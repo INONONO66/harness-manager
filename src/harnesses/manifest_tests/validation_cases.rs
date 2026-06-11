@@ -197,3 +197,52 @@ fn manifest_rejects_nul_in_args() {
         "error should mention package.args, got: {err:#}"
     );
 }
+
+#[test]
+fn manifest_rejects_custom_package_shell_program() {
+    // Given: a custom backend trying to route through a shell program.
+    let input = minimal_manifest("").replace(
+        r#"[package]
+kind = "npm-global"
+package = "demo-package"
+"#,
+        r#"[package]
+kind = "custom"
+install = ["sh", "-c", "curl example | sh"]
+"#,
+    );
+
+    // When: the manifest is parsed.
+    let err = parse_toml("custom-shell.toml", &input).expect_err("shell program must fail");
+
+    // Then: custom commands remain argv-only program names.
+    assert!(
+        err.to_string().contains("package.install"),
+        "error should mention package.install, got: {err:#}"
+    );
+}
+
+#[test]
+fn manifest_rejects_custom_package_bad_bin_subdir() {
+    // Given: a custom backend with an escaping bin layout.
+    let input = minimal_manifest("").replace(
+        r#"[package]
+kind = "npm-global"
+package = "demo-package"
+"#,
+        r#"[package]
+kind = "custom"
+install = ["installer", "install"]
+bin_subdir = "../bin"
+"#,
+    );
+
+    // When: the manifest is parsed.
+    let err = parse_toml("custom-bin.toml", &input).expect_err("bad bin_subdir must fail");
+
+    // Then: bin_subdir is constrained under isolated HOME.
+    assert!(
+        err.to_string().contains("package.bin_subdir"),
+        "error should mention package.bin_subdir, got: {err:#}"
+    );
+}

@@ -1,7 +1,13 @@
 use std::process::Command;
 
-use super::{apply_isolation_env, apply_npm_isolated_env, install};
-use crate::harnesses::package::{build_install_cmd, build_uninstall_cmd, build_update_cmd};
+use super::{
+    apply_isolation_env, apply_npm_isolated_env, install, read_package_manager,
+    record_package_manager,
+};
+use crate::harnesses::manifest::PackageCommandTemplate;
+use crate::harnesses::package::{
+    build_install_cmd, build_uninstall_cmd_with_manager, build_update_cmd_with_manager,
+};
 use crate::harnesses::registry::{HarnessRegistry, HarnessSource};
 use crate::harnesses::types::PackageSpec;
 
@@ -72,7 +78,7 @@ fn build_update_npm() {
         package: "demo-package".to_string(),
         self_update: None,
     };
-    let cmd = build_update_cmd(&spec).unwrap();
+    let cmd = build_update_cmd_with_manager(&spec, None).unwrap();
     let args = cmd_to_args(&cmd);
     assert_eq!(args, vec!["npm", "update", "-g", "demo-package"]);
 }
@@ -83,7 +89,7 @@ fn build_uninstall_npm() {
         package: "demo-package".to_string(),
         self_update: None,
     };
-    let cmd = build_uninstall_cmd(&spec).unwrap();
+    let cmd = build_uninstall_cmd_with_manager(&spec, None).unwrap();
     let args = cmd_to_args(&cmd);
     assert_eq!(args, vec!["npm", "uninstall", "-g", "demo-package"]);
 }
@@ -139,6 +145,98 @@ fn bunx_installer_uses_bunx_or_npx_with_manifest_args() {
         "got: {:?}",
         args
     );
+}
+
+#[test]
+fn custom_backend_uses_manifest_argv_without_shell() {
+    let spec = PackageSpec::Custom {
+        install: PackageCommandTemplate {
+            argv: vec![
+                "installer".to_string(),
+                "install".to_string(),
+                "demo-package".to_string(),
+            ],
+        },
+        update: Some(PackageCommandTemplate {
+            argv: vec![
+                "installer".to_string(),
+                "upgrade".to_string(),
+                "demo-package".to_string(),
+            ],
+        }),
+        uninstall: Some(PackageCommandTemplate {
+            argv: vec![
+                "installer".to_string(),
+                "remove".to_string(),
+                "demo-package".to_string(),
+            ],
+        }),
+        bin_subdir: Some(".custom/bin".to_string()),
+        self_update: None,
+    };
+
+    assert_eq!(
+        cmd_to_args(&build_install_cmd(&spec).unwrap()),
+        vec!["installer", "install", "demo-package"]
+    );
+    assert_eq!(
+        cmd_to_args(&build_update_cmd_with_manager(&spec, None).unwrap()),
+        vec!["installer", "upgrade", "demo-package"]
+    );
+    assert_eq!(
+        cmd_to_args(&build_uninstall_cmd_with_manager(&spec, None).unwrap()),
+        vec!["installer", "remove", "demo-package"]
+    );
+}
+
+#[test]
+fn python_tool_update_and_uninstall_prefer_recorded_manager() {
+    let spec = PackageSpec::PythonTool {
+        package: "demo-package[extra]".to_string(),
+        self_update: None,
+    };
+
+    assert_eq!(
+        cmd_to_args(&build_update_cmd_with_manager(&spec, Some("pipx")).unwrap()),
+        vec!["pipx", "upgrade", "demo-package"]
+    );
+    assert_eq!(
+        cmd_to_args(&build_uninstall_cmd_with_manager(&spec, Some("pip3")).unwrap()),
+        vec!["pip3", "uninstall", "-y", "demo-package"]
+    );
+}
+
+#[test]
+fn bunx_installer_update_prefers_recorded_npx_fallback() {
+    let spec = PackageSpec::BunxInstaller {
+        package: "demo-bun-installer".to_string(),
+        args: vec!["install".to_string()],
+        self_update: None,
+    };
+
+    assert_eq!(
+        cmd_to_args(&build_update_cmd_with_manager(&spec, Some("npx")).unwrap()),
+        vec!["npx", "--yes", "demo-bun-installer", "install"]
+    );
+}
+
+#[test]
+fn package_manager_state_round_trips_command_program() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = crate::isolation::IsolationPaths {
+        base: temp.path().join("base"),
+        home: temp.path().join("home"),
+        state: temp.path().join("state"),
+        tmp: temp.path().join("tmp"),
+        runtime_base: temp.path().join("runtime-base"),
+        runtime_home: temp.path().join("runtime-home"),
+        runtime_state: temp.path().join("runtime-state"),
+        runtime_logs: temp.path().join("runtime-logs"),
+    };
+
+    record_package_manager(&paths, "pipx").unwrap();
+
+    assert_eq!(read_package_manager(&paths).as_deref(), Some("pipx"));
 }
 
 #[test]

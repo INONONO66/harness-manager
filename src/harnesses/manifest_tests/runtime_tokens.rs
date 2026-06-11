@@ -107,7 +107,8 @@ fn package_self_update(package: &ManifestPackageSpec) -> Option<&SelfUpdatePolic
         | ManifestPackageSpec::NpxInstaller { self_update, .. }
         | ManifestPackageSpec::BunxInstaller { self_update, .. }
         | ManifestPackageSpec::PythonTool { self_update, .. }
-        | ManifestPackageSpec::Manual { self_update, .. } => self_update.as_ref(),
+        | ManifestPackageSpec::Manual { self_update, .. }
+        | ManifestPackageSpec::Custom { self_update, .. } => self_update.as_ref(),
     }
 }
 
