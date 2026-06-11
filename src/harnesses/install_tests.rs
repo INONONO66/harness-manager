@@ -59,6 +59,7 @@ fn cmd_to_args(cmd: &Command) -> Vec<String> {
 fn build_install_npm() {
     let spec = PackageSpec::NpmGlobal {
         package: "demo-package".to_string(),
+        self_update: None,
     };
     let cmd = build_install_cmd(&spec).unwrap();
     let args = cmd_to_args(&cmd);
@@ -69,6 +70,7 @@ fn build_install_npm() {
 fn build_update_npm() {
     let spec = PackageSpec::NpmGlobal {
         package: "demo-package".to_string(),
+        self_update: None,
     };
     let cmd = build_update_cmd(&spec).unwrap();
     let args = cmd_to_args(&cmd);
@@ -79,6 +81,7 @@ fn build_update_npm() {
 fn build_uninstall_npm() {
     let spec = PackageSpec::NpmGlobal {
         package: "demo-package".to_string(),
+        self_update: None,
     };
     let cmd = build_uninstall_cmd(&spec).unwrap();
     let args = cmd_to_args(&cmd);
@@ -89,6 +92,7 @@ fn build_uninstall_npm() {
 fn build_install_manual_returns_none() {
     let spec = PackageSpec::Manual {
         instructions: "do it yourself".to_string(),
+        self_update: None,
     };
     assert!(build_install_cmd(&spec).is_none());
 }
@@ -107,6 +111,7 @@ fn npx_installer_includes_manifest_args() {
     let spec = PackageSpec::NpxInstaller {
         package: "demo-installer".to_string(),
         args: vec!["install".to_string()],
+        self_update: None,
     };
 
     let cmd = build_install_cmd(&spec).unwrap();
@@ -122,6 +127,7 @@ fn bunx_installer_uses_bunx_or_npx_with_manifest_args() {
     let spec = PackageSpec::BunxInstaller {
         package: "demo-bun-installer".to_string(),
         args: vec!["install".to_string()],
+        self_update: None,
     };
 
     let cmd = build_install_cmd(&spec).unwrap();

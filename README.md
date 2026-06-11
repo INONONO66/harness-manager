@@ -171,6 +171,7 @@ launch_binary = "my-harness"
 [package]
 kind = "npm-global"
 package = "my-harness-package"
+self_update = "managed-by-hm"
 
 [isolation]
 spoof_home = true

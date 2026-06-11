@@ -8,6 +8,7 @@ launch_binary = "ouroboros"
 [package]
 kind = "python-tool"
 package = "ouroboros-ai[claude]"
+self_update = "managed-by-hm"
 
 [isolation]
 subdir = "ouroboros"

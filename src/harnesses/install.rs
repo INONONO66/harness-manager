@@ -115,7 +115,7 @@ pub fn install(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
         spec.display_name
     );
 
-    if let PackageSpec::Manual { instructions } = &spec.package {
+    if let PackageSpec::Manual { instructions, .. } = &spec.package {
         eprintln!("{}", instructions);
         bail!("harness '{}' requires manual installation", id);
     }

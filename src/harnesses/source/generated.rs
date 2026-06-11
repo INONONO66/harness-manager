@@ -115,7 +115,7 @@ fn write_generated_manifest(
 fn generated_manifest(input: &GeneratedHarnessPackage<'_>) -> String {
     let (home_subdirs, static_envs) = generated_isolation_fields(input.target_isolation);
     format!(
-        "schema_version = 1\nid = \"{}\"\ndisplay_name = \"{}\"\ntarget_runtime = \"{}\"\ndetect_binaries = [\"{}\"]\nlaunch_binary = \"{}\"\n\n[package]\nkind = \"{}\"\npackage = \"{}\"\n\n[isolation]\nspoof_home = true\nhome_subdirs = [{}]\nstatic_envs = {{{}}}\n",
+        "schema_version = 1\nid = \"{}\"\ndisplay_name = \"{}\"\ntarget_runtime = \"{}\"\ndetect_binaries = [\"{}\"]\nlaunch_binary = \"{}\"\n\n[package]\nkind = \"{}\"\npackage = \"{}\"\nself_update = \"managed-by-hm\"\n\n[isolation]\nspoof_home = true\nhome_subdirs = [{}]\nstatic_envs = {{{}}}\n",
         toml_escape(input.alias),
         toml_escape(input.alias),
         toml_escape(input.runtime),

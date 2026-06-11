@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
-use super::{minimal_manifest, parse_toml};
 use crate::harnesses::builtin::builtin_specs;
+use crate::harnesses::manifest::{ManifestPackageSpec, SelfUpdatePolicy};
+
+use super::{minimal_manifest, parse_toml};
 
 #[test]
 fn manifest_allows_runtime_log_token_for_static_envs() {
@@ -96,6 +98,53 @@ fn omx_harness_disables_self_update() {
             .any(|(key, value)| key == "OMX_AUTO_UPDATE" && value == "0"),
         "omx must disable wrapper self-update while launched through hm"
     );
+}
+
+fn package_self_update(package: &ManifestPackageSpec) -> Option<&SelfUpdatePolicy> {
+    match package {
+        ManifestPackageSpec::NpmGlobal { self_update, .. }
+        | ManifestPackageSpec::NpmIsolated { self_update, .. }
+        | ManifestPackageSpec::NpxInstaller { self_update, .. }
+        | ManifestPackageSpec::BunxInstaller { self_update, .. }
+        | ManifestPackageSpec::PythonTool { self_update, .. }
+        | ManifestPackageSpec::Manual { self_update, .. } => self_update.as_ref(),
+    }
+}
+
+#[test]
+fn manifest_parses_package_self_update_policy() {
+    // Given: a wrapper manifest that declares how launch-time self-update is handled.
+    let input = minimal_manifest("").replace(
+        r#"package = "demo-package""#,
+        "package = \"demo-package\"\nself_update = \"suppressed-by-env\"",
+    );
+
+    // When: the manifest is parsed.
+    let parsed = parse_toml("self-update.toml", &input).expect("self_update parses");
+
+    // Then: the package-level self-update convention is preserved in the spec.
+    assert_eq!(
+        package_self_update(&parsed.package),
+        Some(&SelfUpdatePolicy::SuppressedByEnv)
+    );
+}
+
+#[test]
+fn bundled_package_harnesses_declare_self_update_policy() {
+    // Given: package-backed bundled harnesses that wrap or extend a runtime.
+    let specs = builtin_specs().expect("builtins parse");
+
+    // When/Then: every non-manual bundled package declares who owns self-update.
+    for spec in specs {
+        if matches!(spec.package, ManifestPackageSpec::Manual { .. }) {
+            continue;
+        }
+        assert!(
+            package_self_update(&spec.package).is_some(),
+            "{} must declare [package] self_update",
+            spec.id
+        );
+    }
 }
 
 #[test]

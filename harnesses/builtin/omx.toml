@@ -8,6 +8,7 @@ launch_binary = "omx"
 [package]
 kind = "npm-isolated"
 package = "oh-my-codex"
+self_update = "suppressed-by-env"
 
 [isolation]
 subdir = "omx"
