@@ -71,6 +71,45 @@ fn provider_config_seed_rejects_bearer_crlf_even_without_header_overrides() {
 }
 
 #[test]
+fn provider_config_seed_rejects_missing_provider_api_key_env_mapping() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut spec = opencode_seed_injection();
+    spec.supported_providers.push("azure".to_string());
+    let resolved = proxy_profile_with_gateway(vec!["azure"], "azure-bearer");
+    let mut env = HashMap::new();
+
+    let err =
+        apply_provider_config_seed_strategy(&spec, &resolved, &mut env, tmp.path()).unwrap_err();
+
+    assert!(
+        err.to_string().contains("provider_api_key_envs"),
+        "expected missing provider_api_key_envs error, got: {err:#}"
+    );
+    assert!(
+        env.is_empty(),
+        "missing provider env mapping must not partially inject env vars"
+    );
+    assert!(
+        !tmp.path().join(".config/opencode/opencode.json").exists(),
+        "seed file must not be written when provider env mapping is missing"
+    );
+}
+
+#[test]
+fn validate_seed_rejects_missing_provider_api_key_env_mapping() {
+    let mut spec = opencode_seed_injection();
+    spec.supported_providers.push("azure".to_string());
+    let resolved = proxy_profile_with_gateway(vec!["azure"], "azure-bearer");
+
+    let err = validate_provider_config_seed(&spec, &resolved).unwrap_err();
+
+    assert!(
+        err.to_string().contains("provider_api_key_envs"),
+        "expected missing provider_api_key_envs error, got: {err:#}"
+    );
+}
+
+#[test]
 fn validate_seed_rejects_bearer_nul_even_without_header_overrides() {
     let resolved = proxy_profile_with_gateway(vec!["openai"], "bad\0bearer");
 

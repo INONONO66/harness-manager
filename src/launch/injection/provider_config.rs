@@ -51,6 +51,7 @@ pub fn validate_provider_config_seed(
             spec.supported_providers.join(", ")
         );
     }
+    ensure_provider_api_key_envs(spec, &providers)?;
     let profile_provider_headers = resolved.gateway.as_ref().map(|gw| &gw.provider_headers);
     for provider in &providers {
         if let Some(manifest_headers) = spec.provider_header_overrides.get(provider) {
@@ -101,6 +102,7 @@ pub fn apply_provider_config_seed_strategy(
             spec.supported_providers.join(", ")
         );
     }
+    ensure_provider_api_key_envs(spec, &providers)?;
 
     let effective_strip = resolved
         .gateway
@@ -138,9 +140,11 @@ pub fn apply_provider_config_seed_strategy(
     let profile_provider_headers = resolved.gateway.as_ref().map(|gw| &gw.provider_headers);
 
     for provider in &providers {
-        if let Some(env_key) = provider_api_key_env(provider) {
-            env.insert(env_key.to_string(), bearer.clone());
-        }
+        let env_key = spec
+            .provider_api_key_envs
+            .get(provider)
+            .expect("provider env mapping validated before writes");
+        env.insert(env_key.clone(), bearer.clone());
         let mut provider_node = Value::Object(Map::new());
         set_dotted_path(
             &mut provider_node,
@@ -186,21 +190,22 @@ pub fn apply_provider_config_seed_strategy(
     Ok(config_path)
 }
 
-fn provider_api_key_env(provider: &str) -> Option<&'static str> {
-    match provider {
-        "anthropic" => Some("ANTHROPIC_API_KEY"),
-        "openai" => Some("OPENAI_API_KEY"),
-        "google" => Some("GOOGLE_API_KEY"),
-        "groq" => Some("GROQ_API_KEY"),
-        "xai" => Some("XAI_API_KEY"),
-        "openrouter" => Some("OPENROUTER_API_KEY"),
-        "deepseek" => Some("DEEPSEEK_API_KEY"),
-        "mistral" => Some("MISTRAL_API_KEY"),
-        "togetherai" => Some("TOGETHER_API_KEY"),
-        "fireworks-ai" => Some("FIREWORKS_API_KEY"),
-        "zai" | "zhipuai" => Some("ZAI_API_KEY"),
-        _ => None,
+fn ensure_provider_api_key_envs(
+    spec: &ProviderConfigSeedInjection,
+    providers: &[String],
+) -> Result<()> {
+    let missing: Vec<&str> = providers
+        .iter()
+        .filter(|provider| !spec.provider_api_key_envs.contains_key(*provider))
+        .map(String::as_str)
+        .collect();
+    if !missing.is_empty() {
+        anyhow::bail!(
+            "runtime manifest is missing provider_api_key_envs for provider(s): [{}]",
+            missing.join(", ")
+        );
     }
+    Ok(())
 }
 
 fn resolve_seed_source(

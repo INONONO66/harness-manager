@@ -78,6 +78,11 @@ fn opencode_seed_injection() -> ProviderConfigSeedInjection {
             "openai".to_string(),
             "google".to_string(),
         ],
+        provider_api_key_envs: provider_api_key_envs(&[
+            ("anthropic", "ANTHROPIC_API_KEY"),
+            ("openai", "OPENAI_API_KEY"),
+            ("google", "GOOGLE_API_KEY"),
+        ]),
         overwrite: false,
         endpoint_strip_v1: false,
         provider_header_overrides: headers,
@@ -101,11 +106,23 @@ fn pi_seed_injection() -> ProviderConfigSeedInjection {
             "openai".to_string(),
             "google".to_string(),
         ],
+        provider_api_key_envs: provider_api_key_envs(&[
+            ("anthropic", "ANTHROPIC_API_KEY"),
+            ("openai", "OPENAI_API_KEY"),
+            ("google", "GOOGLE_API_KEY"),
+        ]),
         overwrite: false,
         endpoint_strip_v1: false,
         provider_header_overrides: headers,
         legacy_provider: None,
     }
+}
+
+fn provider_api_key_envs(entries: &[(&str, &str)]) -> BTreeMap<String, String> {
+    entries
+        .iter()
+        .map(|(provider, env)| ((*provider).to_string(), (*env).to_string()))
+        .collect()
 }
 
 fn codex_config_seed_injection() -> CodexConfigSeedInjection {
