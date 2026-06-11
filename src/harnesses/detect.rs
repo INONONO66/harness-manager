@@ -21,9 +21,10 @@ pub struct DetectedHarness {
 pub fn detect_one(spec: &HarnessSpec) -> DetectedHarness {
     let binary_names: Vec<&str> = spec.detect_binaries.iter().map(String::as_str).collect();
     let binary = match &spec.package {
-        PackageSpec::NpmIsolated { .. } => {
-            detect_in_isolation_home(spec).or_else(|| crate::runtimes::find_binary(&binary_names))
-        }
+        PackageSpec::NpmIsolated { .. } => detect_in_isolation_home(spec, ".npm/bin")
+            .or_else(|| crate::runtimes::find_binary(&binary_names)),
+        PackageSpec::PythonTool { .. } => detect_in_isolation_home(spec, ".local/bin")
+            .or_else(|| crate::runtimes::find_binary(&binary_names)),
         PackageSpec::NpxInstaller { .. } | PackageSpec::BunxInstaller { .. } => {
             let cache_hit = IsolationPaths::try_from_spec(&spec.isolation)
                 .ok()
@@ -88,9 +89,9 @@ fn format_package_source(pkg: &PackageSpec) -> String {
     }
 }
 
-fn detect_in_isolation_home(spec: &HarnessSpec) -> Option<PathBuf> {
+fn detect_in_isolation_home(spec: &HarnessSpec, bin_subdir: &str) -> Option<PathBuf> {
     let paths = IsolationPaths::try_from_spec(&spec.isolation).ok()?;
-    let iso_bin = paths.home.join(".npm").join("bin");
+    let iso_bin = paths.home.join(bin_subdir);
     spec.detect_binaries.iter().find_map(|name| {
         let candidate = iso_bin.join(name);
         if candidate.exists() {
@@ -494,6 +495,40 @@ seed_files = []
             "BunxInstaller with versioned cache dir must report installed"
         );
         assert_eq!(result.package_source, "bunx-installer (oh-my-bunsh)");
+
+        let _ = std::fs::remove_dir_all(&paths.base);
+    }
+
+    #[test]
+    fn detect_one_python_tool_installed_from_isolated_local_bin() {
+        let subdir = unique_subdir("python-tool-bin");
+        let isolation = empty_iso(&subdir);
+        let paths = crate::isolation::IsolationPaths::try_from_spec(&isolation).unwrap();
+        let bin_dir = paths.home.join(".local").join("bin");
+        let binary = bin_dir.join("python-tool-bin");
+        std::fs::create_dir_all(&bin_dir).expect("seed python tool bin dir");
+        std::fs::write(&binary, "#!/bin/sh\n").expect("seed python tool binary");
+
+        let spec = HarnessSpec {
+            id: "python-tool-harness".to_string(),
+            aliases: Vec::new(),
+            display_name: "python-tool-harness".to_string(),
+            target_runtime: "shell".to_string(),
+            package: PackageSpec::PythonTool {
+                package: "python-tool-package".to_string(),
+            },
+            detect_binaries: vec!["python-tool-bin".to_string()],
+            isolation,
+            launch_binary: Some("python-tool-bin".to_string()),
+            launch_args: Vec::new(),
+        };
+        let result = detect_one(&spec);
+
+        assert!(
+            result.installed,
+            "PythonTool must report installed when pipx/uv created a binary under isolated HOME/.local/bin"
+        );
+        assert_eq!(result.binary_path, Some(binary));
 
         let _ = std::fs::remove_dir_all(&paths.base);
     }

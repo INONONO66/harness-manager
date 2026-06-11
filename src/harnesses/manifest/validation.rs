@@ -136,13 +136,40 @@ pub(super) fn validate_python_package_name(
     value: &str,
 ) -> Result<()> {
     validate_package_common(path_label, field, value)?;
+    let (package, extras) = match value.split_once('[') {
+        Some((package, extras_part)) => {
+            ensure(extras_part.ends_with(']'), path_label, field)?;
+            ensure(
+                !extras_part[..extras_part.len() - 1].contains('['),
+                path_label,
+                field,
+            )?;
+            (package, Some(&extras_part[..extras_part.len() - 1]))
+        }
+        None => (value, None),
+    };
+    ensure(!package.is_empty(), path_label, field)?;
     ensure(
-        value
+        package
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')),
         path_label,
         field,
-    )
+    )?;
+    if let Some(extras) = extras {
+        ensure(!extras.is_empty(), path_label, field)?;
+        for extra in extras.split(',') {
+            ensure(!extra.is_empty(), path_label, field)?;
+            ensure(
+                extra
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')),
+                path_label,
+                field,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn validate_package_common(path_label: &str, field: &str, value: &str) -> Result<()> {
