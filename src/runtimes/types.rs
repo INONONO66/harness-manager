@@ -12,13 +12,11 @@ pub struct DetectedRuntime {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum AuthStatus {
     Valid { detail: String },
     ExpiresSoon { detail: String },
     Expired { detail: String },
     NotConfigured,
-    Unknown,
 }
 
 impl AuthStatus {
@@ -28,7 +26,6 @@ impl AuthStatus {
             Self::ExpiresSoon { .. } => "\u{26a0}\u{fe0f}",
             Self::Expired { .. } => "\u{274c}",
             Self::NotConfigured => "\u{274c}",
-            Self::Unknown => "?",
         }
     }
 
@@ -38,7 +35,6 @@ impl AuthStatus {
             Self::ExpiresSoon { detail } => format!("Expires soon ({})", detail),
             Self::Expired { detail } => format!("Expired ({})", detail),
             Self::NotConfigured => "Not configured".to_string(),
-            Self::Unknown => "Unknown".to_string(),
         }
     }
 }
