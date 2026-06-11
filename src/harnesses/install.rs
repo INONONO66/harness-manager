@@ -8,16 +8,17 @@ use super::registry::HarnessRegistry;
 use super::types::{HarnessSpec, PackageSpec};
 use crate::isolation::spec::IsolationRecipe;
 use crate::isolation::{self, IsolationLockGuard, IsolationPaths};
+use crate::runtimes::manifest::SharedStatePlan;
 
 fn apply_isolation_env(
     cmd: &mut Command,
-    target_runtime: &str,
+    target_runtime_shared_state: Option<&SharedStatePlan>,
     iso: &(impl IsolationRecipe + ?Sized),
     paths: &IsolationPaths,
 ) -> anyhow::Result<()> {
     isolation::ensure_isolation_tree(iso, paths)?;
     isolation::seed_files(iso, paths)?;
-    isolation::prepare_main_runtime_shared_state(target_runtime, paths)?;
+    isolation::prepare_runtime_shared_state(target_runtime_shared_state, paths)?;
     let inherited: std::collections::HashMap<String, String> = std::env::vars().collect();
     let env = isolation::build_sanitized_isolation_env(&inherited, iso, paths);
     cmd.env_clear();
@@ -124,7 +125,12 @@ pub fn install(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
 
     let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
     let _lock = IsolationLockGuard::acquire(&paths)?;
-    apply_isolation_env(&mut cmd, &spec.target_runtime, &spec.isolation, &paths)?;
+    apply_isolation_env(
+        &mut cmd,
+        spec.target_runtime_shared_state.as_ref(),
+        &spec.isolation,
+        &paths,
+    )?;
     apply_npm_isolated_env(&mut cmd, &spec.package, &paths);
     run_cmd(cmd, "install", id)?;
 
@@ -153,7 +159,12 @@ pub fn update(registry: &HarnessRegistry, id: &str) -> anyhow::Result<()> {
 
     let paths = IsolationPaths::try_from_spec(&spec.isolation)?;
     let _lock = IsolationLockGuard::acquire(&paths)?;
-    apply_isolation_env(&mut cmd, &spec.target_runtime, &spec.isolation, &paths)?;
+    apply_isolation_env(
+        &mut cmd,
+        spec.target_runtime_shared_state.as_ref(),
+        &spec.isolation,
+        &paths,
+    )?;
     apply_npm_isolated_env(&mut cmd, &spec.package, &paths);
     run_cmd(cmd, "update", id)?;
 
@@ -180,7 +191,12 @@ pub fn remove(registry: &HarnessRegistry, id: &str, purge: bool) -> anyhow::Resu
     if let Some(cmd) = build_uninstall_cmd(&spec.package) {
         // Best-effort uninstall — don't fail if the package wasn't installed
         let mut cmd = cmd;
-        apply_isolation_env(&mut cmd, &spec.target_runtime, &spec.isolation, &paths)?;
+        apply_isolation_env(
+            &mut cmd,
+            spec.target_runtime_shared_state.as_ref(),
+            &spec.isolation,
+            &paths,
+        )?;
         apply_npm_isolated_env(&mut cmd, &spec.package, &paths);
         let _ = run_cmd(cmd, "uninstall", id);
     }

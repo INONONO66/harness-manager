@@ -4,6 +4,7 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 use crate::isolation::spec::{IsolationPlan, SeedFilePlan};
+use crate::runtimes::manifest::SharedStatePlan;
 use crate::runtimes::registry::RuntimeRegistry;
 
 mod validation;
@@ -22,6 +23,7 @@ pub struct ManifestHarnessSpec {
     pub aliases: Vec<String>,
     pub display_name: String,
     pub target_runtime: String,
+    pub target_runtime_shared_state: Option<SharedStatePlan>,
     pub package: ManifestPackageSpec,
     pub detect_binaries: Vec<String>,
     pub launch_binary: Option<String>,
@@ -160,17 +162,15 @@ fn convert_manifest(
             "aliases",
         )?;
     }
-    let target_runtime = runtimes
-        .find(&manifest.target_runtime)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "{}: invalid target_runtime '{}'",
-                path_label,
-                manifest.target_runtime
-            )
-        })?
-        .name
-        .clone();
+    let target_runtime_record = runtimes.find(&manifest.target_runtime).ok_or_else(|| {
+        anyhow::anyhow!(
+            "{}: invalid target_runtime '{}'",
+            path_label,
+            manifest.target_runtime
+        )
+    })?;
+    let target_runtime = target_runtime_record.name.clone();
+    let target_runtime_shared_state = target_runtime_record.shared_state.clone();
     ensure(
         !manifest.detect_binaries.is_empty(),
         path_label,
@@ -192,6 +192,7 @@ fn convert_manifest(
         aliases: manifest.aliases,
         display_name: manifest.display_name,
         target_runtime,
+        target_runtime_shared_state,
         package,
         detect_binaries: manifest.detect_binaries,
         launch_binary: manifest.launch_binary,

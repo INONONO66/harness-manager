@@ -163,7 +163,7 @@ fn prepare_isolation(
     let lock = isolation::IsolationLockGuard::acquire(&paths)?;
     isolation::ensure_isolation_tree(&iso, &paths)?;
     isolation::seed_files(&iso, &paths)?;
-    isolation::prepare_main_runtime_shared_state(&runtime.name, &paths)?;
+    isolation::prepare_runtime_shared_state(runtime.shared_state.as_ref(), &paths)?;
     Ok(Some((iso, paths, lock)))
 }
 
