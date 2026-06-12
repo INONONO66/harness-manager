@@ -236,6 +236,103 @@ fn opencode_manifest_parses_with_provider_config_seed() {
 }
 
 #[test]
+fn grok_manifest_parses_with_xai_env_injection() {
+    let grok = parse_for("Grok CLI");
+
+    assert_eq!(grok.binary_names, vec!["grok".to_string()]);
+    match grok.config_locator {
+        ConfigLocatorRecord::EnvOrHome {
+            ref env,
+            ref home_relative,
+        } => {
+            assert!(env.is_empty());
+            assert_eq!(home_relative, ".grok");
+        }
+        _ => panic!("expected EnvOrHome"),
+    }
+
+    let json_probe = grok
+        .auth_probes
+        .iter()
+        .find(|p| matches!(p, AuthProbeRecord::JsonFile { .. }))
+        .expect("user-settings auth probe");
+    if let AuthProbeRecord::JsonFile {
+        relative_path,
+        existence_field,
+        ..
+    } = json_probe
+    {
+        assert_eq!(relative_path, "user-settings.json");
+        assert_eq!(existence_field, "apiKey");
+    }
+
+    let injection = grok.injection.expect("injection present");
+    match injection {
+        InjectionRecord::Env(env) => {
+            assert_eq!(env.provider, "xai");
+            assert_eq!(env.supported_providers, vec!["xai".to_string()]);
+            assert_eq!(env.endpoint_env, "GROK_BASE_URL");
+            assert_eq!(env.api_key_env, "GROK_API_KEY");
+            assert!(env.strip_envs.contains(&"GROK_API_KEY".to_string()));
+            assert!(env.strip_envs.contains(&"GROK_BASE_URL".to_string()));
+            assert!(!env.endpoint_strip_v1);
+        }
+        _ => panic!("expected env strategy"),
+    }
+
+    let isolation = grok.isolation.expect("isolation present");
+    assert_eq!(isolation.subdir, "grok");
+    assert!(isolation.spoof_home);
+}
+
+#[test]
+fn gajae_code_manifest_parses_with_provider_config_seed() {
+    let gajae = parse_for("Gajae-Code");
+
+    assert_eq!(gajae.binary_names, vec!["gjc".to_string()]);
+    match gajae.config_locator {
+        ConfigLocatorRecord::EnvOrHome {
+            ref env,
+            ref home_relative,
+        } => {
+            assert_eq!(env, "GJC_CODING_AGENT_DIR");
+            assert_eq!(home_relative, ".gjc/agent");
+        }
+        _ => panic!("expected EnvOrHome"),
+    }
+
+    let injection = gajae.injection.expect("injection present");
+    match injection {
+        InjectionRecord::ProviderConfigSeed(seed) => {
+            assert_eq!(seed.root_key, "providers");
+            assert_eq!(seed.provider_base_url_key, "baseUrl");
+            assert_eq!(seed.provider_api_key_key, "apiKey");
+            assert_eq!(seed.provider_headers_key.as_deref(), Some("headers"));
+            assert_eq!(seed.legacy_provider.as_deref(), Some("openai"));
+            assert!(seed.config_path.ends_with(".gjc/agent/models.yml"));
+            assert!(seed.supported_providers.contains(&"xai".to_string()));
+            assert_eq!(
+                seed.provider_api_key_envs.get("xai").map(String::as_str),
+                Some("XAI_API_KEY")
+            );
+            assert_eq!(
+                seed.provider_api_key_envs.get("google").map(String::as_str),
+                Some("GEMINI_API_KEY")
+            );
+        }
+        _ => panic!("expected provider-config-seed strategy"),
+    }
+
+    let isolation = gajae.isolation.expect("isolation present");
+    assert_eq!(isolation.subdir, "gajae-code");
+    assert!(isolation.spoof_home);
+    assert!(isolation
+        .static_envs
+        .iter()
+        .any(|(k, v)| k == "GJC_CODING_AGENT_DIR" && v == "{home}/.gjc/agent"));
+}
+
+#[test]
 fn pi_manifest_parses_with_provider_config_seed_and_unsupported_login() {
     let pi = parse_for("Pi");
     assert!(matches!(pi.auth_login, AuthLoginRecord::Unsupported));

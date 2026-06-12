@@ -26,14 +26,16 @@ spoof_home = true
 }
 
 #[test]
-fn builtin_only_returns_four_runtimes() {
+fn builtin_only_returns_expected_runtimes() {
     let registry = RuntimeRegistry::builtin_only().expect("builtin runtimes parse");
     let names: Vec<&str> = registry.records().iter().map(|r| r.name.as_str()).collect();
     assert!(names.contains(&"Claude Code"));
     assert!(names.contains(&"Codex CLI"));
+    assert!(names.contains(&"Gajae-Code"));
+    assert!(names.contains(&"Grok CLI"));
     assert!(names.contains(&"OpenCode"));
     assert!(names.contains(&"Pi"));
-    assert_eq!(registry.records().len(), 4);
+    assert_eq!(registry.records().len(), 6);
 }
 
 #[test]
@@ -44,6 +46,8 @@ fn find_by_binary_and_display_name() {
     assert_eq!(registry.find("codex").unwrap().name, "Codex CLI");
     assert_eq!(registry.find("Codex CLI").unwrap().name, "Codex CLI");
     assert_eq!(registry.find("CODEX-CLI").unwrap().name, "Codex CLI");
+    assert_eq!(registry.find("gjc").unwrap().name, "Gajae-Code");
+    assert_eq!(registry.find("grok").unwrap().name, "Grok CLI");
     assert!(registry.find("nope").is_none());
 }
 
@@ -83,7 +87,7 @@ fn user_manifest_overrides_builtin_display_name() {
         .expect("old 'claude' binary route preserved as detection alias on replacement");
     assert_eq!(preserved.name, "Claude Code");
     assert_eq!(preserved.binary_names, vec!["claude2".to_string()]);
-    assert_eq!(registry.records().len(), 4, "claude replaced, not added");
+    assert_eq!(registry.records().len(), 6, "claude replaced, not added");
 }
 
 #[test]
@@ -188,7 +192,7 @@ fn identical_user_copy_of_builtin_loads_without_changing_count() {
 
     assert_eq!(
         registry.records().len(),
-        4,
+        6,
         "identical override replaces builtin, count unchanged",
     );
 }
@@ -241,7 +245,7 @@ fn discovery_picks_up_user_runtime_under_xdg_config_home() {
 
     assert!(registry.find("example-bin").is_some());
     assert!(registry.find_by_display_name("Example Runtime").is_some());
-    assert!(registry.records().len() > 4);
+    assert!(registry.records().len() > 6);
 }
 
 #[cfg(unix)]

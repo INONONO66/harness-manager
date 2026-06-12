@@ -1,0 +1,99 @@
+schema_version = 1
+name = "Gajae-Code"
+binary_names = ["gjc"]
+version_arg = "--version"
+config_files = ["config.yml", "models.yml"]
+
+[config_locator]
+kind = "env-or-home"
+env = "GJC_CODING_AGENT_DIR"
+home_relative = ".gjc/agent"
+
+[[auth_probes]]
+kind = "env-keys"
+vars = [
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_OAUTH_TOKEN",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "XAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "GROQ_API_KEY",
+]
+label = "Provider API key"
+
+[[auth_probes]]
+kind = "env-keys"
+vars = ["GJC_AUTH_BROKER_URL", "GJC_AUTH_BROKER_TOKEN"]
+label = "Auth broker"
+
+[auth_login]
+kind = "message"
+lines = [
+    "Gajae-Code uses provider-specific credentials.",
+    "Set API keys in the environment, configure ~/.gjc/agent/models.yml, or run `gjc setup --provider <id>`.",
+    "Install with: bun install -g gajae-code",
+]
+
+[shared_state]
+database_dirs = [".gjc/agent"]
+auth_files = [".gjc/agent/auth-broker.token"]
+
+[injection]
+strategy = "provider-config-seed"
+config_path = "{home}/.gjc/agent/models.yml"
+root_key = "providers"
+provider_base_url_key = "baseUrl"
+provider_api_key_key = "apiKey"
+provider_headers_key = "headers"
+supported_providers = [
+    "anthropic",
+    "openai",
+    "google",
+    "openrouter",
+    "groq",
+    "xai",
+    "deepseek",
+    "mistral",
+    "azure",
+    "togetherai",
+    "fireworks-ai",
+    "zai",
+    "cerebras",
+]
+overwrite = false
+endpoint_strip_v1 = false
+legacy_provider = "openai"
+
+[injection.provider_api_key_envs]
+anthropic = "ANTHROPIC_API_KEY"
+openai = "OPENAI_API_KEY"
+google = "GEMINI_API_KEY"
+openrouter = "OPENROUTER_API_KEY"
+groq = "GROQ_API_KEY"
+xai = "XAI_API_KEY"
+deepseek = "DEEPSEEK_API_KEY"
+mistral = "MISTRAL_API_KEY"
+azure = "AZURE_API_KEY"
+togetherai = "TOGETHER_API_KEY"
+fireworks-ai = "FIREWORKS_API_KEY"
+zai = "ZAI_API_KEY"
+cerebras = "CEREBRAS_API_KEY"
+
+[injection.provider_header_overrides.anthropic]
+"x-api-key" = "{bearer}"
+"Authorization" = "Bearer {bearer}"
+
+[isolation]
+subdir = "gajae-code"
+spoof_home = true
+home_subdirs = [
+    ".gjc",
+    ".cache/gajae-code",
+]
+
+[isolation.static_envs]
+GJC_CODING_AGENT_DIR = "{home}/.gjc/agent"
+GJC_CONFIG_DIR = ".gjc"
+GJC_NO_PTY = "1"

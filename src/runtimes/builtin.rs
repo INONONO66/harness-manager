@@ -20,21 +20,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtin_runtime_manifests_index_lists_all_four() {
+    fn builtin_runtime_manifests_index_lists_all_expected_manifests() {
         let labels: Vec<&str> = BUILTIN_RUNTIME_MANIFESTS
             .iter()
             .map(|(label, _)| *label)
             .collect();
         assert!(labels.iter().any(|l| l.ends_with("/claude.toml")));
         assert!(labels.iter().any(|l| l.ends_with("/codex.toml")));
+        assert!(labels.iter().any(|l| l.ends_with("/gajae-code.toml")));
+        assert!(labels.iter().any(|l| l.ends_with("/grok.toml")));
         assert!(labels.iter().any(|l| l.ends_with("/opencode.toml")));
         assert!(labels.iter().any(|l| l.ends_with("/pi.toml")));
-        assert_eq!(labels.len(), 4);
+        assert_eq!(labels.len(), 6);
     }
 
     #[test]
     fn builtin_runtime_records_all_parse() {
         let records = builtin_runtime_records().expect("builtins parse");
-        assert_eq!(records.len(), 4);
+        assert_eq!(records.len(), 6);
     }
 }
