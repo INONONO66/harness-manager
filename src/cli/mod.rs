@@ -61,7 +61,7 @@ pub enum Commands {
     /// Launch a runtime or registered harness with profile injection
     #[command(alias = "run")]
     Use {
-        /// Runtime or harness to launch (claude, codex, opencode, pi, or a harness id)
+        /// Runtime or harness to launch (claude, codex, gjc, grok, opencode, pi, or a harness id)
         runtime: String,
 
         /// Profile from ~/.config/hm/config.toml to inject
@@ -99,7 +99,7 @@ pub enum AuthAction {
 
     /// Delegate login to a runtime's native auth flow
     Login {
-        /// Runtime to log in (claude, codex, opencode, pi)
+        /// Runtime to log in (claude, codex, gjc, grok, opencode, pi)
         runtime: String,
     },
 }

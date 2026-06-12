@@ -2,7 +2,7 @@
 
 One command layer for AI coding agents, proxy profiles, auth state, and harness isolation.
 
-Claude Code, Codex CLI, OpenCode, Pi, and harnesses built on top of them all want to own the same machine. They read the same env vars, write the same config folders, cache credentials in different places, and leak state across sessions. `hm` gives each tool a clean launch boundary without forcing you to abandon the native CLIs.
+Claude Code, Codex CLI, Gajae-Code, Grok CLI, OpenCode, Pi, and harnesses built on top of them all want to own the same machine. They read the same env vars, write the same config folders, cache credentials in different places, and leak state across sessions. `hm` gives each tool a clean launch boundary without forcing you to abandon the native CLIs.
 
 ```bash
 hm detect
@@ -30,6 +30,8 @@ $ hm detect
 ├────────────────┼───────────┼───────────────────────┼──────────────────────────────────────────────────────────────┤
 │ Claude Code    │ Installed │ 2.1.152 (Claude Code) │ OAuth + OAuth (macOS Keychain) + API key (ANTHROPIC_API_KEY) │
 │ Codex CLI      │ Installed │ codex-cli 0.136.0     │ ChatGPT OAuth + API key (OPENAI_API_KEY)                     │
+│ Gajae-Code     │ Installed │ gjc 0.4.4             │ Provider API key (ANTHROPIC_API_KEY)                         │
+│ Grok CLI       │ Installed │ grok 1.1.7            │ API key (GROK_API_KEY)                                       │
 │ OpenCode       │ Installed │ 1.15.13               │ Provider auth (7 providers) + API key (ANTHROPIC_API_KEY)    │
 │ Pi             │ Not found │ -                     │ Not configured                                               │
 ╰────────────────┴───────────┴───────────────────────┴──────────────────────────────────────────────────────────────╯
@@ -64,7 +66,7 @@ cp target/release/hm ~/.local/bin/
 `hm init` copies every built-in runtime and harness manifest into `~/.config/hm/` so you can edit them. The embedded copies in the binary stay as defaults; your edits take precedence.
 
 ```bash
-hm init                # write 4 runtimes + 5 harnesses to ~/.config/hm/{runtimes,harnesses}.d/ (skip existing)
+hm init                # write 6 runtimes + 5 harnesses to ~/.config/hm/{runtimes,harnesses}.d/ (skip existing)
 hm init --force        # overwrite existing user manifests with the embedded defaults
 hm init --install      # also install every non-manual harness package
 hm init --force --install   # clean reset: refresh manifests AND reinstall harnesses
@@ -266,6 +268,8 @@ Each manifest declares one of three injection strategies. `hm` validates the ful
 |---|---|---|---|---|
 | Claude Code | `claude` binary + `~/.claude/` | OAuth + Keychain + env | `env` | `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` (with `/v1` stripped) |
 | Codex CLI | `codex` binary + `~/.codex/` | ChatGPT OAuth + env | `codex-config-seed` | writes top-level `openai_base_url` + `model_provider` to `~/.codex/config.toml` (merging with existing seed_files content) and injects `CODEX_API_KEY` env (codex 0.137 reads this at runtime, not `OPENAI_API_KEY`) |
+| Gajae-Code | `gjc` binary + `~/.gjc/agent/` | Provider env + auth broker env | `provider-config-seed` | seeds `~/.gjc/agent/models.yml` `providers.<id>.{baseUrl,apiKey,headers}` for every gateway provider |
+| Grok CLI | `grok` binary + `~/.grok/` | `GROK_API_KEY` env + `user-settings.json` | `env` | `GROK_BASE_URL` + `GROK_API_KEY` for xAI/Grok profiles |
 | OpenCode | `opencode` binary + `~/.config/opencode/` | Provider auth + env | `provider-config-seed` | seeds `~/.config/opencode/opencode.json` `provider.<id>.options.{baseURL,apiKey,headers}` for every gateway provider; falls back to `[profiles.X.llm]` as single-provider `openai` seed |
 | Pi | `pi` binary + `~/.pi/agent/` | Token file | `provider-config-seed` | seeds `~/.pi/agent/models.json` `providers.<id>.{baseUrl,apiKey,headers}` for every gateway provider |
 
@@ -369,7 +373,7 @@ src/
     mod.rs               run_use and exec
   inject/mod.rs        hm inject plan dry-run (calls validate_provider_config_seed)
 
-runtimes/builtin/      bundled runtime TOML manifests (claude, codex, opencode, pi)
+runtimes/builtin/      bundled runtime TOML manifests (claude, codex, gajae-code, grok, opencode, pi)
 harnesses/builtin/     bundled harness TOML manifests
 docs/                  manifest authoring guide
 ```

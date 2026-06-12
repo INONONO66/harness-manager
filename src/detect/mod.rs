@@ -157,7 +157,7 @@ pub fn run_detect(registry: &RuntimeRegistry) -> anyhow::Result<()> {
     if found == 0 {
         println!(
             "{}",
-            "No agent runtimes found. Install Claude Code, Codex CLI, OpenCode, or Pi.".yellow()
+            "No agent runtimes found. Install Claude Code, Codex CLI, Gajae-Code, Grok CLI, OpenCode, or Pi.".yellow()
         );
     } else {
         println!(
