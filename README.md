@@ -49,7 +49,19 @@ uses Unix process exec semantics and Unix filesystem permissions for launch,
 isolation, and secret handling.
 
 ```bash
-cargo install --path .
+curl -fsSL https://raw.githubusercontent.com/INONONO66/harness-manager/main/scripts/install.sh | sh
+```
+
+Install and copy built-in manifests in one step:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/INONONO66/harness-manager/main/scripts/install.sh | sh -s -- --init
+```
+
+Install everything non-manual that `hm init --install` can manage:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/INONONO66/harness-manager/main/scripts/install.sh | sh -s -- --install-harnesses
 ```
 
 Or build from source:
@@ -59,6 +71,12 @@ git clone https://github.com/INONONO66/harness-manager.git
 cd harness-manager
 cargo build --release
 cp target/release/hm ~/.local/bin/
+```
+
+For local development, install from the checkout:
+
+```bash
+cargo install --path .
 ```
 
 ## First-Time Bootstrap (`hm init`)
