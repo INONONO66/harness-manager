@@ -18,7 +18,7 @@ pub(super) fn build_install_cmd(spec: &PackageSpec) -> Option<Command> {
         PackageSpec::BunxInstaller { package, args, .. } => build_bunx_cmd(package, args),
         PackageSpec::PythonTool { package, .. } => build_python_install_cmd(package),
         PackageSpec::Custom { install, .. } => command_from_argv(&install.argv),
-        PackageSpec::Manual { .. } => None,
+        PackageSpec::Manual { .. } | PackageSpec::GitWorktree { .. } => None,
     }
 }
 
@@ -47,7 +47,7 @@ pub(super) fn build_update_cmd_with_manager(
         PackageSpec::Custom { update, .. } => update
             .as_ref()
             .and_then(|template| command_from_argv(&template.argv)),
-        PackageSpec::Manual { .. } => None,
+        PackageSpec::Manual { .. } | PackageSpec::GitWorktree { .. } => None,
     }
 }
 
@@ -68,7 +68,7 @@ pub(super) fn build_uninstall_cmd_with_manager(
         PackageSpec::Custom { uninstall, .. } => uninstall
             .as_ref()
             .and_then(|template| command_from_argv(&template.argv)),
-        PackageSpec::Manual { .. } => None,
+        PackageSpec::Manual { .. } | PackageSpec::GitWorktree { .. } => None,
     }
 }
 

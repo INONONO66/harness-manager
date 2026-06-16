@@ -31,6 +31,9 @@ fn builtin_manifests_have_usable_package_strategies() {
         }
         ManifestPackageSpec::Manual { instructions, .. } => !instructions.is_empty(),
         ManifestPackageSpec::Custom { install, .. } => !install.argv.is_empty(),
+        ManifestPackageSpec::GitWorktree {
+            repository, setup, ..
+        } => !repository.is_empty() && !setup.argv.is_empty(),
     });
 
     // Then: each bundled package strategy carries the command payload it needs.

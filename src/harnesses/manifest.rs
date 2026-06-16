@@ -7,12 +7,17 @@ use crate::isolation::spec::{IsolationPlan, SeedFilePlan};
 use crate::runtimes::manifest::SharedStatePlan;
 use crate::runtimes::registry::RuntimeRegistry;
 
+mod package;
 pub(crate) mod validation;
 
+pub use package::ManifestPackageSpec;
+pub(crate) use package::PackageCommandTemplate;
+#[cfg(test)]
+pub use package::SelfUpdatePolicy;
+use package::{convert_package, PackageManifest};
 use validation::{
     ensure, parse_mode, validate_args, validate_binary_name, validate_env_key, validate_id,
-    validate_package_name, validate_python_package_name, validate_relative_path,
-    validate_seed_path, validate_template_value,
+    validate_relative_path, validate_seed_path, validate_template_value,
 };
 
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
@@ -31,72 +36,6 @@ pub struct ManifestHarnessSpec {
     pub isolation: IsolationPlan,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ManifestPackageSpec {
-    NpmGlobal {
-        package: String,
-        self_update: Option<SelfUpdatePolicy>,
-    },
-    /// Like NpmGlobal but installs into the harness isolation home via
-    /// `NPM_CONFIG_PREFIX`, so the binary never lands on the host PATH.
-    NpmIsolated {
-        package: String,
-        self_update: Option<SelfUpdatePolicy>,
-    },
-    NpxInstaller {
-        package: String,
-        args: Vec<String>,
-        self_update: Option<SelfUpdatePolicy>,
-    },
-    BunxInstaller {
-        package: String,
-        args: Vec<String>,
-        self_update: Option<SelfUpdatePolicy>,
-    },
-    PythonTool {
-        package: String,
-        self_update: Option<SelfUpdatePolicy>,
-    },
-    Manual {
-        instructions: String,
-        self_update: Option<SelfUpdatePolicy>,
-    },
-    Custom {
-        install: PackageCommandTemplate,
-        update: Option<PackageCommandTemplate>,
-        uninstall: Option<PackageCommandTemplate>,
-        bin_subdir: Option<String>,
-        self_update: Option<SelfUpdatePolicy>,
-    },
-}
-
-impl ManifestPackageSpec {
-    pub fn bin_subdir(&self) -> Option<&str> {
-        match self {
-            Self::NpmIsolated { .. } => Some(".npm/bin"),
-            Self::PythonTool { .. } => Some(".local/bin"),
-            Self::Custom { bin_subdir, .. } => bin_subdir.as_deref(),
-            Self::NpmGlobal { .. }
-            | Self::NpxInstaller { .. }
-            | Self::BunxInstaller { .. }
-            | Self::Manual { .. } => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PackageCommandTemplate {
-    pub argv: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SelfUpdatePolicy {
-    SuppressedByEnv,
-    ManagedByHm,
-    NotApplicable,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HarnessManifest {
@@ -113,63 +52,6 @@ struct HarnessManifest {
     launch_args: Vec<String>,
     package: PackageManifest,
     isolation: IsolationManifest,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "kind", deny_unknown_fields)]
-enum PackageManifest {
-    #[serde(rename = "npm-global")]
-    NpmGlobal {
-        package: String,
-        #[serde(default)]
-        self_update: Option<SelfUpdatePolicy>,
-    },
-    #[serde(rename = "npm-isolated")]
-    NpmIsolated {
-        package: String,
-        #[serde(default)]
-        self_update: Option<SelfUpdatePolicy>,
-    },
-    #[serde(rename = "npx-installer")]
-    NpxInstaller {
-        package: String,
-        #[serde(default)]
-        args: Vec<String>,
-        #[serde(default)]
-        self_update: Option<SelfUpdatePolicy>,
-    },
-    #[serde(rename = "bunx-installer")]
-    BunxInstaller {
-        package: String,
-        #[serde(default)]
-        args: Vec<String>,
-        #[serde(default)]
-        self_update: Option<SelfUpdatePolicy>,
-    },
-    #[serde(rename = "python-tool")]
-    PythonTool {
-        package: String,
-        #[serde(default)]
-        self_update: Option<SelfUpdatePolicy>,
-    },
-    #[serde(rename = "manual")]
-    Manual {
-        instructions: String,
-        #[serde(default)]
-        self_update: Option<SelfUpdatePolicy>,
-    },
-    #[serde(rename = "custom")]
-    Custom {
-        install: Vec<String>,
-        #[serde(default)]
-        update: Option<Vec<String>>,
-        #[serde(default)]
-        uninstall: Option<Vec<String>>,
-        #[serde(default)]
-        bin_subdir: Option<String>,
-        #[serde(default)]
-        self_update: Option<SelfUpdatePolicy>,
-    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -271,138 +153,6 @@ fn convert_manifest(
         launch_args: manifest.launch_args,
         isolation,
     })
-}
-
-fn convert_package(path_label: &str, package: PackageManifest) -> Result<ManifestPackageSpec> {
-    Ok(match package {
-        PackageManifest::NpmGlobal {
-            package,
-            self_update,
-        } => {
-            validate_package_name(path_label, "package.package", &package)?;
-            ManifestPackageSpec::NpmGlobal {
-                package,
-                self_update,
-            }
-        }
-        PackageManifest::NpmIsolated {
-            package,
-            self_update,
-        } => {
-            validate_package_name(path_label, "package.package", &package)?;
-            ManifestPackageSpec::NpmIsolated {
-                package,
-                self_update,
-            }
-        }
-        PackageManifest::NpxInstaller {
-            package,
-            args,
-            self_update,
-        } => {
-            validate_package_name(path_label, "package.package", &package)?;
-            validate_args(path_label, "package.args", &args)?;
-            ManifestPackageSpec::NpxInstaller {
-                package,
-                args,
-                self_update,
-            }
-        }
-        PackageManifest::BunxInstaller {
-            package,
-            args,
-            self_update,
-        } => {
-            validate_package_name(path_label, "package.package", &package)?;
-            validate_args(path_label, "package.args", &args)?;
-            ManifestPackageSpec::BunxInstaller {
-                package,
-                args,
-                self_update,
-            }
-        }
-        PackageManifest::PythonTool {
-            package,
-            self_update,
-        } => {
-            validate_python_package_name(path_label, "package.package", &package)?;
-            ManifestPackageSpec::PythonTool {
-                package,
-                self_update,
-            }
-        }
-        PackageManifest::Manual {
-            instructions,
-            self_update,
-        } => {
-            ensure(
-                !instructions.trim().is_empty(),
-                path_label,
-                "package.instructions",
-            )?;
-            ManifestPackageSpec::Manual {
-                instructions,
-                self_update,
-            }
-        }
-        PackageManifest::Custom {
-            install,
-            update,
-            uninstall,
-            bin_subdir,
-            self_update,
-        } => {
-            let install = validate_command_template(path_label, "package.install", install)?;
-            let update = update
-                .map(|argv| validate_command_template(path_label, "package.update", argv))
-                .transpose()?;
-            let uninstall = uninstall
-                .map(|argv| validate_command_template(path_label, "package.uninstall", argv))
-                .transpose()?;
-            if let Some(subdir) = &bin_subdir {
-                validate_relative_path(path_label, "package.bin_subdir", subdir)?;
-            }
-            ManifestPackageSpec::Custom {
-                install,
-                update,
-                uninstall,
-                bin_subdir,
-                self_update,
-            }
-        }
-    })
-}
-
-fn validate_command_template(
-    path_label: &str,
-    field: &str,
-    argv: Vec<String>,
-) -> Result<PackageCommandTemplate> {
-    ensure(!argv.is_empty(), path_label, field)?;
-    validate_binary_name(path_label, field, &argv[0])?;
-    validate_custom_program(path_label, field, &argv[0])?;
-    validate_args(path_label, field, &argv[1..])?;
-    Ok(PackageCommandTemplate { argv })
-}
-
-fn validate_custom_program(path_label: &str, field: &str, program: &str) -> Result<()> {
-    ensure(
-        !matches!(
-            program,
-            "sh" | "bash"
-                | "zsh"
-                | "fish"
-                | "dash"
-                | "ksh"
-                | "csh"
-                | "tcsh"
-                | "pwsh"
-                | "powershell"
-                | "cmd"
-        ),
-        path_label,
-        field,
-    )
 }
 
 fn convert_isolation(

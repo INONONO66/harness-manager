@@ -107,3 +107,42 @@ self_update = "managed-by-hm"
         other => panic!("unexpected package variant: {other:?}"),
     }
 }
+
+#[test]
+fn manifest_parses_git_worktree_package_backend() {
+    // Given: a repo-backed package that runs a checked-in setup program.
+    let input = minimal_manifest("").replace(
+        r#"[package]
+kind = "npm-global"
+package = "demo-package"
+"#,
+        r#"[package]
+kind = "git-worktree"
+repository = "https://github.com/example/demo"
+setup = ["setup", "--host", "codex"]
+update = ["setup", "--host", "codex", "--update"]
+self_update = "managed-by-hm"
+"#,
+    );
+
+    // When: the manifest is parsed.
+    let parsed = parse_toml("git-worktree.toml", &input).expect("git worktree backend parses");
+
+    // Then: the repo URL and setup commands stay structured.
+    match parsed.package {
+        ManifestPackageSpec::GitWorktree {
+            repository,
+            setup,
+            update,
+            ..
+        } => {
+            assert_eq!(repository, "https://github.com/example/demo");
+            assert_eq!(setup.argv, vec!["setup", "--host", "codex"]);
+            assert_eq!(
+                update.expect("update command").argv,
+                vec!["setup", "--host", "codex", "--update"]
+            );
+        }
+        other => panic!("unexpected package variant: {other:?}"),
+    }
+}

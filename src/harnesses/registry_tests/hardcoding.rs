@@ -22,7 +22,9 @@ fn package_name(package: &ManifestPackageSpec) -> Option<&str> {
         | ManifestPackageSpec::NpxInstaller { package, .. }
         | ManifestPackageSpec::BunxInstaller { package, .. }
         | ManifestPackageSpec::PythonTool { package, .. } => Some(package),
-        ManifestPackageSpec::Manual { .. } | ManifestPackageSpec::Custom { .. } => None,
+        ManifestPackageSpec::Manual { .. }
+        | ManifestPackageSpec::Custom { .. }
+        | ManifestPackageSpec::GitWorktree { .. } => None,
     }
 }
 
