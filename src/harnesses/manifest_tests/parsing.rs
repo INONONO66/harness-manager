@@ -22,8 +22,13 @@ fn parses_minimal_manifest_into_owned_spec() {
     let shared_state = parsed
         .target_runtime_shared_state
         .expect("target runtime shared-state policy");
-    assert_eq!(shared_state.database_dirs, vec![".codex"]);
-    assert_eq!(shared_state.auth_files, vec![".codex/auth.json"]);
+    assert!(shared_state.database_dirs.is_empty());
+    assert_eq!(
+        shared_state.session_dirs,
+        vec![".codex/sessions", ".codex/archived_sessions"]
+    );
+    assert_eq!(shared_state.session_files, vec![".codex/history.jsonl"]);
+    assert!(shared_state.auth_files.is_empty());
     assert_eq!(parsed.isolation.home_subdirs, vec![".codex"]);
     assert_eq!(
         parsed.isolation.static_envs,

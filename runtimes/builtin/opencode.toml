@@ -31,8 +31,14 @@ lines = [
 ]
 
 [shared_state]
-database_dirs = [".local/share/opencode"]
-auth_files = [".local/share/opencode/auth.json"]
+session_file_globs = [".local/share/opencode/opencode.db*"]
+session_dirs = [
+    ".local/share/opencode/storage/session",
+    ".local/share/opencode/storage/message",
+    ".local/share/opencode/storage/part",
+    ".local/share/opencode/storage/session_diff",
+]
+session_dir_globs = [".local/share/opencode/project/*/storage"]
 
 [injection]
 strategy = "provider-config-seed"

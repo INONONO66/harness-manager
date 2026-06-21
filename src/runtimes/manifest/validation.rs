@@ -38,6 +38,7 @@ pub(super) fn validate_relative_path(path_label: &str, field: &str, value: &str)
         path_label,
         field,
     )?;
+    ensure(!value.contains('\\'), path_label, field)?;
     ensure(
         !value
             .split('/')
