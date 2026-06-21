@@ -12,8 +12,21 @@ fn harness_install_package_with_alias_writes_manifest_and_installs() {
     let config = temp.path().join("config");
     let home = temp.path().join("home");
     fs::create_dir_all(&bin).unwrap();
-    fs::create_dir_all(home.join(".codex")).unwrap();
+    fs::create_dir_all(home.join(".codex/sessions")).unwrap();
     fs::write(home.join(".codex/auth.json"), r#"{"token":"host"}"#).unwrap();
+    fs::write(home.join(".codex/sessions/secret.jsonl"), "session").unwrap();
+    let stale_iso_codex = data.join("hm/runtimes/pkg-demo/home/.codex");
+    fs::create_dir_all(stale_iso_codex.join("sessions")).unwrap();
+    std::os::unix::fs::symlink(
+        home.join(".codex/auth.json"),
+        stale_iso_codex.join("auth.json"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        home.join(".codex/sessions/secret.jsonl"),
+        stale_iso_codex.join("sessions/secret.jsonl"),
+    )
+    .unwrap();
     let npm_log = temp.path().join("npm.log");
     fake_npm(&bin, &npm_log);
 
@@ -55,6 +68,10 @@ fn harness_install_package_with_alias_writes_manifest_and_installs() {
     assert!(
         !npm_output.contains("auth_link_visible"),
         "package manager must not see host auth files:\n{npm_output}"
+    );
+    assert!(
+        !npm_output.contains("session_link_visible"),
+        "package manager must not see host session files:\n{npm_output}"
     );
     assert_eq!(npm_output, "install\n-g\ndemo-package\n");
 }

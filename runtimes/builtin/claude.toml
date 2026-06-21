@@ -33,7 +33,7 @@ binary = "claude"
 args = []
 
 [shared_state]
-auth_files = [".claude/.credentials.json"]
+session_dirs = [".claude/projects", ".claude/transcripts"]
 
 [injection]
 strategy = "env"

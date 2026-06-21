@@ -37,8 +37,8 @@ binary = "codex"
 args = ["auth", "login"]
 
 [shared_state]
-database_dirs = [".codex"]
-auth_files = [".codex/auth.json"]
+session_dirs = [".codex/sessions", ".codex/archived_sessions"]
+session_files = [".codex/history.jsonl"]
 
 # Verified against openai/codex@f221438 (rust-v0.137.0).
 # Codex 0.137 reads `openai_base_url` and `model_provider` from

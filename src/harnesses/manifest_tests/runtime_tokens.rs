@@ -58,7 +58,7 @@ overwrite = false"#,
 }
 
 #[test]
-fn bundled_codex_harnesses_use_harness_local_runtime_home() {
+fn bundled_codex_harnesses_keep_isolated_config_home() {
     // Given: bundled manifests that target Codex.
     let specs = builtin_specs().expect("builtins parse");
     let codex_specs: Vec<_> = specs
@@ -66,16 +66,15 @@ fn bundled_codex_harnesses_use_harness_local_runtime_home() {
         .filter(|spec| spec.target_runtime == "Codex CLI")
         .collect();
 
-    // When/Then: every Codex harness owns its runtime home so setup state cannot leak.
+    // When/Then: every Codex harness keeps config in its isolated wrapper home.
     assert!(!codex_specs.is_empty(), "expected bundled Codex harnesses");
     for spec in codex_specs {
-        assert_eq!(spec.isolation.runtime_subdir, spec.isolation.subdir);
         assert!(
             spec.isolation
                 .static_envs
                 .iter()
                 .any(|(key, value)| key == "CODEX_HOME" && value == "{home}/.codex"),
-            "{} must point CODEX_HOME at the harness-local Codex home",
+            "{} must point CODEX_HOME at the isolated wrapper home",
             spec.id
         );
     }
@@ -150,7 +149,7 @@ fn bundled_package_harnesses_declare_self_update_policy() {
 }
 
 #[test]
-fn bundled_opencode_harnesses_use_harness_local_runtime_home() {
+fn bundled_opencode_harnesses_keep_isolated_xdg_homes() {
     // Given: bundled manifests that target OpenCode.
     let specs = builtin_specs().expect("builtins parse");
     let opencode_specs: Vec<_> = specs
@@ -158,13 +157,12 @@ fn bundled_opencode_harnesses_use_harness_local_runtime_home() {
         .filter(|spec| spec.target_runtime == "OpenCode")
         .collect();
 
-    // When/Then: every OpenCode harness owns its OpenCode config/data/cache roots.
+    // When/Then: every OpenCode harness keeps config/data/cache roots isolated.
     assert!(
         !opencode_specs.is_empty(),
         "expected bundled OpenCode harnesses"
     );
     for spec in opencode_specs {
-        assert_eq!(spec.isolation.runtime_subdir, spec.isolation.subdir);
         let envs: BTreeMap<_, _> = spec.isolation.static_envs.iter().cloned().collect();
         assert_eq!(spec.detect_binaries, vec!["opencode"]);
         assert_eq!(spec.launch_binary.as_deref(), Some("opencode"));
@@ -202,7 +200,7 @@ fn bundled_opencode_harnesses_use_harness_local_runtime_home() {
 }
 
 #[test]
-fn bundled_claude_harnesses_use_harness_local_runtime_home() {
+fn bundled_claude_harnesses_keep_isolated_config_home() {
     // Given: bundled manifests that target Claude.
     let specs = builtin_specs().expect("builtins parse");
     let claude_specs: Vec<_> = specs
@@ -210,14 +208,13 @@ fn bundled_claude_harnesses_use_harness_local_runtime_home() {
         .filter(|spec| spec.target_runtime == "Claude Code")
         .collect();
 
-    // When/Then: every Claude harness owns its Claude config/plugin state.
+    // When/Then: every Claude harness keeps Claude config isolated.
     assert!(
         !claude_specs.is_empty(),
         "expected bundled Claude harnesses"
     );
     for spec in claude_specs {
         let envs: BTreeMap<_, _> = spec.isolation.static_envs.iter().cloned().collect();
-        assert_eq!(spec.isolation.runtime_subdir, spec.isolation.subdir);
         assert_eq!(
             spec.launch_binary.as_deref(),
             spec.detect_binaries.first().map(String::as_str),
@@ -233,7 +230,7 @@ fn bundled_claude_harnesses_use_harness_local_runtime_home() {
                 .seed_files
                 .iter()
                 .any(|seed| seed.path == "{home}/.claude/settings.json"),
-            "{} must seed harness-local Claude settings",
+            "{} must seed isolated Claude settings",
             spec.id
         );
     }

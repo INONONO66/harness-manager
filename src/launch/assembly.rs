@@ -70,6 +70,15 @@ pub fn assemble_use_env(
         &mut env,
         &selected.binary_names,
     );
+    let auth_state = if iso_setup.is_none() {
+        IsolationAuthState::None
+    } else if has_profile {
+        IsolationAuthState::ProfileCredentials
+    } else if share_auth_files && runtime_declares_auth_files(selected.runtime) {
+        IsolationAuthState::SharedHostAuth
+    } else {
+        IsolationAuthState::None
+    };
 
     Ok(UseEnvAssembly {
         env,
@@ -81,14 +90,15 @@ pub fn assemble_use_env(
         isolation_present: iso_setup.is_some(),
         binary_override,
         isolated_binary_required: selected.isolated_package_binary_path.is_some(),
-        auth_state: if iso_setup.is_none() {
-            IsolationAuthState::None
-        } else if has_profile {
-            IsolationAuthState::ProfileCredentials
-        } else {
-            IsolationAuthState::SharedHostAuth
-        },
+        auth_state,
     })
+}
+
+fn runtime_declares_auth_files(runtime: &crate::runtimes::manifest::RuntimeRecord) -> bool {
+    runtime
+        .shared_state
+        .as_ref()
+        .is_some_and(|plan| !plan.auth_files.is_empty())
 }
 
 struct SelectedTarget<'a> {
@@ -208,78 +218,5 @@ fn existing_first_binary(bin_dir: &std::path::Path, binary_names: &[String]) -> 
 }
 
 #[cfg(test)]
-mod tests {
-    use tempfile::tempdir;
-
-    use super::*;
-
-    #[test]
-    fn python_tool_binary_override_adds_isolated_local_bin() {
-        let tmp = tempdir().expect("tempdir");
-        let home = tmp.path().join("home");
-        let bin_dir = home.join(".local").join("bin");
-        std::fs::create_dir_all(&bin_dir).expect("create bin dir");
-        let binary = bin_dir.join("python-tool-bin");
-        std::fs::write(&binary, "#!/bin/sh\n").expect("write binary");
-
-        let iso_paths = Some(isolation::IsolationPaths {
-            base: tmp.path().join("base"),
-            home,
-            state: tmp.path().join("state"),
-            tmp: tmp.path().join("tmp"),
-            runtime_base: tmp.path().join("runtime-base"),
-            runtime_home: tmp.path().join("runtime-home"),
-            runtime_state: tmp.path().join("runtime-state"),
-            runtime_logs: tmp.path().join("runtime-logs"),
-        });
-        let mut env = HashMap::from([("PATH".to_string(), "/usr/bin".to_string())]);
-
-        let override_path = isolated_package_binary_override(
-            Some(".local/bin"),
-            &iso_paths,
-            &mut env,
-            &["python-tool-bin".to_string()],
-        );
-
-        assert_eq!(override_path, Some(binary));
-        assert_eq!(
-            env.get("PATH").expect("PATH"),
-            &format!("{}:/usr/bin", bin_dir.to_string_lossy())
-        );
-    }
-
-    #[test]
-    fn declared_bin_subdir_override_adds_custom_bin_dir() {
-        let tmp = tempdir().expect("tempdir");
-        let home = tmp.path().join("home");
-        let bin_dir = home.join(".custom").join("bin");
-        std::fs::create_dir_all(&bin_dir).expect("create bin dir");
-        let binary = bin_dir.join("custom-tool");
-        std::fs::write(&binary, "#!/bin/sh\n").expect("write binary");
-
-        let iso_paths = Some(isolation::IsolationPaths {
-            base: tmp.path().join("base"),
-            home,
-            state: tmp.path().join("state"),
-            tmp: tmp.path().join("tmp"),
-            runtime_base: tmp.path().join("runtime-base"),
-            runtime_home: tmp.path().join("runtime-home"),
-            runtime_state: tmp.path().join("runtime-state"),
-            runtime_logs: tmp.path().join("runtime-logs"),
-        });
-        let mut env = HashMap::from([("PATH".to_string(), "/usr/bin".to_string())]);
-
-        let override_path = isolated_package_binary_override(
-            Some(".custom/bin"),
-            &iso_paths,
-            &mut env,
-            &["custom-tool".to_string()],
-        );
-
-        assert_eq!(override_path, Some(binary));
-        assert_eq!(
-            env.get("PATH").expect("PATH"),
-            &format!("{}:/usr/bin", bin_dir.to_string_lossy())
-        );
-    }
-}
+#[path = "assembly_tests.rs"]
+mod tests;

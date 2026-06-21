@@ -56,7 +56,8 @@ pub fn fake_npm(bin_dir: &Path, log_path: &Path) {
     fs::write(
         &npm,
         format!(
-            "#!/bin/sh\nif [ -e \"$HOME/.codex/auth.json\" ]; then printf 'auth_link_visible\\n' >> '{}'; fi\nprintf '%s\\n' \"$@\" >> '{}'\nexit 0\n",
+            "#!/bin/sh\nif [ -e \"$HOME/.codex/auth.json\" ]; then printf 'auth_link_visible\\n' >> '{}'; fi\nif [ -e \"$HOME/.codex/sessions/secret.jsonl\" ]; then printf 'session_link_visible\\n' >> '{}'; fi\nprintf '%s\\n' \"$@\" >> '{}'\nexit 0\n",
+            log_path.display(),
             log_path.display(),
             log_path.display()
         ),

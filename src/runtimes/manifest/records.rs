@@ -135,5 +135,9 @@ pub struct CodexConfigSeedInjection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SharedStatePlan {
     pub database_dirs: Vec<String>,
+    pub session_dirs: Vec<String>,
+    pub session_files: Vec<String>,
+    pub session_dir_globs: Vec<String>,
+    pub session_file_globs: Vec<String>,
     pub auth_files: Vec<String>,
 }

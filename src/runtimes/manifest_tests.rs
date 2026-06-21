@@ -122,6 +122,10 @@ kind = "unsupported"
 
 [shared_state]
 database_dirs = [".codex"]
+session_dirs = [".codex/sessions"]
+session_files = [".codex/history.jsonl"]
+session_dir_globs = [".local/share/opencode/project/*/storage"]
+session_file_globs = [".local/share/opencode/opencode.db*"]
 auth_files = [".codex/auth.json"]
 "#;
 
@@ -129,7 +133,73 @@ auth_files = [".codex/auth.json"]
     let shared_state = parsed.shared_state.expect("shared state policy");
 
     assert_eq!(shared_state.database_dirs, vec![".codex"]);
+    assert_eq!(shared_state.session_dirs, vec![".codex/sessions"]);
+    assert_eq!(shared_state.session_files, vec![".codex/history.jsonl"]);
+    assert_eq!(
+        shared_state.session_dir_globs,
+        vec![".local/share/opencode/project/*/storage"]
+    );
+    assert_eq!(
+        shared_state.session_file_globs,
+        vec![".local/share/opencode/opencode.db*"]
+    );
     assert_eq!(shared_state.auth_files, vec![".codex/auth.json"]);
+}
+
+#[test]
+fn builtin_runtime_manifests_declare_only_session_shared_state() {
+    let codex = parse_for("Codex CLI")
+        .shared_state
+        .expect("codex shared state");
+    assert!(codex.database_dirs.is_empty());
+    assert_eq!(
+        codex.session_dirs,
+        vec![".codex/sessions", ".codex/archived_sessions"]
+    );
+    assert_eq!(codex.session_files, vec![".codex/history.jsonl"]);
+    assert!(codex.auth_files.is_empty());
+
+    let opencode = parse_for("OpenCode")
+        .shared_state
+        .expect("opencode shared state");
+    assert!(opencode.database_dirs.is_empty());
+    assert_eq!(
+        opencode.session_file_globs,
+        vec![".local/share/opencode/opencode.db*"]
+    );
+    assert!(opencode
+        .session_dirs
+        .contains(&".local/share/opencode/storage/session".to_string()));
+    assert!(opencode
+        .session_dir_globs
+        .contains(&".local/share/opencode/project/*/storage".to_string()));
+    assert!(opencode.auth_files.is_empty());
+
+    let claude = parse_for("Claude Code")
+        .shared_state
+        .expect("claude shared state");
+    assert_eq!(
+        claude.session_dirs,
+        vec![".claude/projects", ".claude/transcripts"]
+    );
+    assert!(claude.auth_files.is_empty());
+
+    let pi = parse_for("Pi").shared_state.expect("pi shared state");
+    assert_eq!(pi.session_dirs, vec![".pi/agent/sessions"]);
+    assert!(pi.auth_files.is_empty());
+
+    let gajae = parse_for("Gajae-Code")
+        .shared_state
+        .expect("gajae shared state");
+    assert_eq!(gajae.session_file_globs, vec![".gjc/agent/*.db*"]);
+    assert_eq!(gajae.session_dirs, vec![".gjc/agent/sessions"]);
+    assert!(gajae.auth_files.is_empty());
+
+    let grok = parse_for("Grok CLI")
+        .shared_state
+        .expect("grok shared state");
+    assert_eq!(grok.session_dirs, vec![".grok/sessions"]);
+    assert!(grok.auth_files.is_empty());
 }
 
 #[test]
@@ -159,6 +229,64 @@ auth_files = ["../secret.json"]
     assert!(
         err.to_string().contains("shared_state.auth_files"),
         "expected shared_state.auth_files validation error, got: {err:#}"
+    );
+}
+
+#[test]
+fn rejects_shared_state_backslash_paths() {
+    let input = r#"
+schema_version = 1
+name = "Bad Backslash Shared State"
+binary_names = ["bad-backslash-shared-state"]
+version_arg = "--version"
+
+[config_locator]
+kind = "env-or-home"
+env = ""
+home_relative = ".bad"
+
+[auth_login]
+kind = "unsupported"
+
+[shared_state]
+session_files = ['.bad\history.jsonl']
+"#;
+
+    let err =
+        parse_toml("bad-backslash-shared-state.toml", input).expect_err("backslash must fail");
+
+    assert!(
+        err.to_string().contains("shared_state.session_files"),
+        "expected shared_state.session_files validation error, got: {err:#}"
+    );
+}
+
+#[test]
+fn rejects_shared_state_glob_backslash_paths() {
+    let input = r#"
+schema_version = 1
+name = "Bad Backslash Shared State Glob"
+binary_names = ["bad-backslash-shared-state-glob"]
+version_arg = "--version"
+
+[config_locator]
+kind = "env-or-home"
+env = ""
+home_relative = ".bad"
+
+[auth_login]
+kind = "unsupported"
+
+[shared_state]
+session_file_globs = ['.bad\*.db']
+"#;
+
+    let err = parse_toml("bad-backslash-shared-state-glob.toml", input)
+        .expect_err("glob backslash must fail");
+
+    assert!(
+        err.to_string().contains("shared_state.session_file_globs"),
+        "expected shared_state.session_file_globs validation error, got: {err:#}"
     );
 }
 
