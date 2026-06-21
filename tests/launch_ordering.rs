@@ -229,7 +229,9 @@ fn profile_launch_does_not_share_host_auth_into_harness_isolation() {
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let isolated_auth = tmp_data.join("hm/runtimes/omx/home/.codex/auth.json");
     let isolated_config = tmp_data.join("hm/runtimes/omx/home/.codex/config.toml");
-    let auth_exists = isolated_auth.exists();
+    let auth_is_link = std::fs::symlink_metadata(&isolated_auth)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
     let config_exists = isolated_config.exists();
 
     let _ = std::fs::remove_dir_all(&tmp_cfg);
@@ -245,14 +247,121 @@ fn profile_launch_does_not_share_host_auth_into_harness_isolation() {
         "profile launch should still seed runtime config into isolation"
     );
     assert!(
-        !auth_exists,
-        "profile launch must not share host auth file into harness isolation"
+        !auth_is_link,
+        "profile launch must not symlink host auth file into harness isolation"
     );
 }
 
 #[test]
-fn no_profile_launch_shares_host_auth_when_runtime_manifest_allows_it() {
-    let suite = unique_suite("no-profile-auth-shared");
+fn profile_runtime_launch_does_not_share_custom_runtime_auth_files() {
+    let suite = unique_suite("profile-custom-runtime-auth-not-shared");
+    let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
+    let tmp_data = std::env::temp_dir().join(format!("{suite}-data"));
+    let tmp_home = std::env::temp_dir().join(format!("{suite}-home"));
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+    std::fs::create_dir_all(tmp_cfg.join("hm/runtimes.d")).unwrap();
+    std::fs::create_dir_all(tmp_home.join(".custom-agent/sessions")).unwrap();
+    std::fs::write(
+        tmp_home.join(".custom-agent/auth.json"),
+        r#"{"token":"host"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        tmp_home.join(".custom-agent/sessions/rollout.jsonl"),
+        "session",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp_cfg.join("hm/config.toml"),
+        "default_profile = \"proxy\"\n[profiles.proxy.gateway]\nbase_url = \"http://127.0.0.1:9/v1\"\nbearer = \"qa-token\"\nproviders = [\"custom\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp_cfg.join("hm/runtimes.d/custom-agent.toml"),
+        r#"
+schema_version = 1
+name = "Custom Agent"
+binary_names = ["custom-agent"]
+version_arg = "--version"
+
+[config_locator]
+kind = "env-or-home"
+env = "CUSTOM_AGENT_HOME"
+home_relative = ".custom-agent"
+
+[auth_login]
+kind = "unsupported"
+label = "Custom Agent"
+message = "manual"
+
+[shared_state]
+session_dirs = [".custom-agent/sessions"]
+auth_files = [".custom-agent/auth.json"]
+
+[injection]
+strategy = "env"
+provider = "custom"
+supported_providers = ["custom"]
+endpoint_env = "CUSTOM_AGENT_BASE_URL"
+api_key_env = "CUSTOM_AGENT_API_KEY"
+strip_envs = ["CUSTOM_AGENT_API_KEY", "CUSTOM_AGENT_BASE_URL"]
+endpoint_strip_v1 = true
+
+[isolation]
+subdir = "custom-agent"
+spoof_home = true
+home_subdirs = [".custom-agent"]
+
+[isolation.static_envs]
+CUSTOM_AGENT_HOME = "{home}/.custom-agent"
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_hm"))
+        .args(["use", "custom-agent", "--profile", "proxy", "--print-env"])
+        .env("XDG_CONFIG_HOME", &tmp_cfg)
+        .env("XDG_DATA_HOME", &tmp_data)
+        .env("HOME", &tmp_home)
+        .env_remove("CUSTOM_AGENT_API_KEY")
+        .env_remove("CUSTOM_AGENT_BASE_URL")
+        .output()
+        .expect("spawn hm");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let isolated_auth = tmp_data.join("hm/runtimes/custom-agent/home/.custom-agent/auth.json");
+    let isolated_session =
+        tmp_data.join("hm/runtimes/custom-agent/home/.custom-agent/sessions/rollout.jsonl");
+    let auth_is_link = std::fs::symlink_metadata(&isolated_auth)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
+    let session_is_link = std::fs::symlink_metadata(&isolated_session)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
+
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+
+    assert!(
+        output.status.success(),
+        "custom runtime profile launch should succeed; stderr was: {stderr}"
+    );
+    assert!(
+        !auth_is_link,
+        "profile launch must not symlink custom runtime auth_files"
+    );
+    assert!(
+        session_is_link,
+        "profile launch should still share custom runtime sessions"
+    );
+}
+
+#[test]
+fn no_profile_launch_shares_host_sessions_without_host_auth() {
+    let suite = unique_suite("no-profile-session-shared");
     let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
     let tmp_data = std::env::temp_dir().join(format!("{suite}-data"));
     let tmp_home = std::env::temp_dir().join(format!("{suite}-home"));
@@ -260,8 +369,9 @@ fn no_profile_launch_shares_host_auth_when_runtime_manifest_allows_it() {
     let _ = std::fs::remove_dir_all(&tmp_data);
     let _ = std::fs::remove_dir_all(&tmp_home);
     std::fs::create_dir_all(tmp_cfg.join("hm")).unwrap();
-    std::fs::create_dir_all(tmp_home.join(".codex")).unwrap();
+    std::fs::create_dir_all(tmp_home.join(".codex/sessions")).unwrap();
     std::fs::write(tmp_home.join(".codex/auth.json"), r#"{"token":"host"}"#).unwrap();
+    std::fs::write(tmp_home.join(".codex/sessions/rollout.jsonl"), "session").unwrap();
     std::fs::write(tmp_cfg.join("hm/config.toml"), "").unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_hm"))
@@ -278,7 +388,11 @@ fn no_profile_launch_shares_host_auth_when_runtime_manifest_allows_it() {
 
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let isolated_auth = tmp_data.join("hm/runtimes/omx/home/.codex/auth.json");
+    let isolated_session = tmp_data.join("hm/runtimes/omx/home/.codex/sessions/rollout.jsonl");
     let auth_is_link = std::fs::symlink_metadata(&isolated_auth)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
+    let session_is_link = std::fs::symlink_metadata(&isolated_session)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false);
 
@@ -291,14 +405,22 @@ fn no_profile_launch_shares_host_auth_when_runtime_manifest_allows_it() {
         "no-profile launch env assembly should succeed; stderr was: {stderr}"
     );
     assert!(
-        auth_is_link,
-        "no-profile launch should keep runtime-manifest host auth sharing"
+        !auth_is_link,
+        "no-profile launch must not share host auth from bundled session-only manifests"
+    );
+    assert!(
+        !stderr.contains("shared host auth"),
+        "session-only launch must not report shared host auth: {stderr}"
+    );
+    assert!(
+        session_is_link,
+        "no-profile launch should share runtime session artifacts"
     );
 }
 
 #[test]
-fn profile_launch_removes_stale_host_auth_link_from_previous_no_profile_launch() {
-    let suite = unique_suite("profile-removes-shared-auth");
+fn profile_launch_keeps_session_links_without_host_auth() {
+    let suite = unique_suite("profile-keeps-shared-sessions");
     let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
     let tmp_data = std::env::temp_dir().join(format!("{suite}-data"));
     let tmp_home = std::env::temp_dir().join(format!("{suite}-home"));
@@ -308,7 +430,7 @@ fn profile_launch_removes_stale_host_auth_link_from_previous_no_profile_launch()
     std::fs::create_dir_all(tmp_cfg.join("hm")).unwrap();
     std::fs::create_dir_all(tmp_home.join(".codex/sessions")).unwrap();
     std::fs::write(tmp_home.join(".codex/auth.json"), r#"{"token":"host"}"#).unwrap();
-    std::fs::write(tmp_home.join(".codex/sessions/events.sqlite"), "db").unwrap();
+    std::fs::write(tmp_home.join(".codex/sessions/rollout.jsonl"), "session").unwrap();
     std::fs::write(tmp_cfg.join("hm/config.toml"), "").unwrap();
 
     let first = Command::new(env!("CARGO_BIN_EXE_hm"))
@@ -320,11 +442,11 @@ fn profile_launch_removes_stale_host_auth_link_from_previous_no_profile_launch()
         .expect("spawn hm");
 
     let auth = tmp_data.join("hm/runtimes/omx/home/.codex/auth.json");
-    let db = tmp_data.join("hm/runtimes/omx/home/.codex/sessions/events.sqlite");
+    let session = tmp_data.join("hm/runtimes/omx/home/.codex/sessions/rollout.jsonl");
     let auth_was_link = std::fs::symlink_metadata(&auth)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false);
-    let db_was_link = std::fs::symlink_metadata(&db)
+    let session_was_link = std::fs::symlink_metadata(&session)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false);
 
@@ -345,8 +467,10 @@ fn profile_launch_removes_stale_host_auth_link_from_previous_no_profile_launch()
         .output()
         .expect("spawn hm");
 
-    let auth_exists_after_profile = auth.exists();
-    let db_still_link = std::fs::symlink_metadata(&db)
+    let auth_is_link_after_profile = std::fs::symlink_metadata(&auth)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
+    let session_still_link = std::fs::symlink_metadata(&session)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false);
 
@@ -355,19 +479,70 @@ fn profile_launch_removes_stale_host_auth_link_from_previous_no_profile_launch()
     let _ = std::fs::remove_dir_all(&tmp_home);
 
     assert!(first.status.success(), "initial no-profile launch failed");
-    assert!(auth_was_link, "initial no-profile launch should share auth");
     assert!(
-        db_was_link,
-        "initial no-profile launch should share DB files"
+        !auth_was_link,
+        "initial no-profile launch must not share host auth"
+    );
+    assert!(
+        session_was_link,
+        "initial no-profile launch should share session files"
     );
     assert!(second.status.success(), "profile launch failed");
     assert!(
-        !auth_exists_after_profile,
+        !auth_is_link_after_profile,
         "profile launch must remove stale host auth link"
     );
     assert!(
-        db_still_link,
-        "profile launch should keep runtime database sharing"
+        session_still_link,
+        "profile launch should keep runtime session sharing"
+    );
+}
+
+#[test]
+fn bundled_session_only_launch_removes_stale_legacy_host_auth_link() {
+    let suite = unique_suite("session-only-removes-stale-auth");
+    let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
+    let tmp_data = std::env::temp_dir().join(format!("{suite}-data"));
+    let tmp_home = std::env::temp_dir().join(format!("{suite}-home"));
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+    std::fs::create_dir_all(tmp_cfg.join("hm")).unwrap();
+    std::fs::create_dir_all(tmp_home.join(".codex")).unwrap();
+    std::fs::create_dir_all(tmp_data.join("hm/runtimes/omx/home/.codex")).unwrap();
+    std::fs::write(tmp_cfg.join("hm/config.toml"), "").unwrap();
+    std::fs::write(tmp_home.join(".codex/auth.json"), r#"{"token":"host"}"#).unwrap();
+    std::os::unix::fs::symlink(
+        tmp_home.join(".codex/auth.json"),
+        tmp_data.join("hm/runtimes/omx/home/.codex/auth.json"),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_hm"))
+        .args(["use", "omx", "--print-env"])
+        .env("XDG_CONFIG_HOME", &tmp_cfg)
+        .env("XDG_DATA_HOME", &tmp_data)
+        .env("HOME", &tmp_home)
+        .output()
+        .expect("spawn hm");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let stale_auth = tmp_data.join("hm/runtimes/omx/home/.codex/auth.json");
+    let auth_is_link_after = std::fs::symlink_metadata(&stale_auth)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
+
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+
+    assert!(
+        output.status.success(),
+        "no-profile launch env assembly should succeed; stderr was: {stderr}"
+    );
+    assert!(
+        !auth_is_link_after,
+        "bundled session-only launch must remove stale legacy host auth symlink"
     );
 }
 
