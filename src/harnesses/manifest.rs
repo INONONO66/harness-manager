@@ -161,7 +161,6 @@ fn convert_isolation(
     isolation: IsolationManifest,
 ) -> Result<IsolationPlan> {
     let subdir = isolation.subdir.unwrap_or_else(|| id.to_string());
-    let runtime_subdir = subdir.clone();
     validate_relative_path(path_label, "isolation.subdir", &subdir)?;
     for subdir in &isolation.home_subdirs {
         validate_relative_path(path_label, "isolation.home_subdirs", subdir)?;
@@ -187,8 +186,8 @@ fn convert_isolation(
     }
 
     Ok(IsolationPlan {
+        runtime_subdir: subdir.clone(),
         subdir,
-        runtime_subdir,
         spoof_home: isolation.spoof_home,
         home_subdirs: isolation.home_subdirs,
         static_envs,

@@ -29,8 +29,7 @@ lines = [
 ]
 
 [shared_state]
-database_dirs = [".grok"]
-auth_files = [".grok/user-settings.json"]
+session_dirs = [".grok/sessions"]
 
 [injection]
 strategy = "env"

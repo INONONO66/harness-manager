@@ -37,8 +37,8 @@ lines = [
 ]
 
 [shared_state]
-database_dirs = [".gjc/agent"]
-auth_files = [".gjc/agent/auth-broker.token"]
+session_file_globs = [".gjc/agent/*.db*"]
+session_dirs = [".gjc/agent/sessions"]
 
 [injection]
 strategy = "provider-config-seed"

@@ -184,11 +184,11 @@ After a successful install, hm records the resolved package manager under the ha
 
 `isolation.home_subdirs`: directories created under the isolated home.
 
-`isolation.static_envs`: static env values with `{home}`, `{state}`, `{tmp}`, `{runtime_home}`, `{runtime_state}`, and `{runtime_logs}` substitution. For harness manifests, `{runtime_home}` resolves to the harness runtime root, not the base target runtime root, so wrappers do not share DBs, auth, MCP config, plugins, hooks, prompts, or trust state unless core adds an explicit sharing mode.
+`isolation.static_envs`: static env values with `{home}`, `{state}`, `{tmp}`, `{runtime_home}`, `{runtime_state}`, and `{runtime_logs}` substitution. Prefer `{home}` for wrapper config roots; `{runtime_home}` is a compatibility token for advanced custom manifests.
 
-`isolation.seed_files`: files created inside the isolation tree before launch or package-manager work.
+`isolation.seed_files`: files created inside the isolation tree before launch or package-manager work. Wrapper config seeds should normally live under `{home}` so wrapper config stays isolated.
 
-hm owns main runtime state sharing outside the manifest schema. Codex harness homes link `*.sqlite*` files to `~/.codex`; OpenCode harness homes link `*.db*` files to `~/.local/share/opencode`. Host auth files are linked only for isolated launches without a profile; profile launches use the profile's gateway/API credentials and keep host auth out of the harness home. Harness manifests should still keep config/auth/plugins/hooks/prompts under `{home}`.
+hm owns native runtime session sharing through runtime manifests, not harness manifests. Bundled wrappers keep config, plugins, cache, logs, and auth isolated, while manifest-declared session/transcript artifacts are linked from the user's native runtime home into the wrapper's isolated `{home}`.
 
 ## Isolation Tokens
 
@@ -198,12 +198,12 @@ Use these tokens instead of absolute host paths:
 {home}   isolated home directory
 {state}  per-harness state directory
 {tmp}    per-harness temp directory
-{runtime_home}   harness runtime home directory
-{runtime_state}  harness runtime state directory
-{runtime_logs}   harness runtime log directory
+{runtime_home}   target runtime home directory
+{runtime_state}  target runtime state directory
+{runtime_logs}   target runtime log directory
 ```
 
-Seed file paths must start with `{home}/`, `{runtime_home}/`, `{state}/`, or `{tmp}/`.
+Seed file paths must start with `{home}/`, `{runtime_home}/`, `{state}/`, or `{tmp}/`. Prefer `{home}/` for wrapper config seeds so custom wrappers do not accidentally share native runtime config.
 
 ## Security Rules
 

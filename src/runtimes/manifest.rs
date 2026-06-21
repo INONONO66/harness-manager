@@ -205,6 +205,14 @@ struct SharedStateManifest {
     #[serde(default)]
     database_dirs: Vec<String>,
     #[serde(default)]
+    session_dirs: Vec<String>,
+    #[serde(default)]
+    session_files: Vec<String>,
+    #[serde(default)]
+    session_dir_globs: Vec<String>,
+    #[serde(default)]
+    session_file_globs: Vec<String>,
+    #[serde(default)]
     auth_files: Vec<String>,
 }
 
@@ -283,13 +291,41 @@ fn convert_shared_state(
     for path in &shared_state.database_dirs {
         validate_relative_path(path_label, "shared_state.database_dirs", path)?;
     }
+    for path in &shared_state.session_dirs {
+        validate_relative_path(path_label, "shared_state.session_dirs", path)?;
+    }
+    for path in &shared_state.session_files {
+        validate_relative_path(path_label, "shared_state.session_files", path)?;
+    }
+    for path in &shared_state.session_dir_globs {
+        validate_shared_state_glob(path_label, "shared_state.session_dir_globs", path)?;
+    }
+    for path in &shared_state.session_file_globs {
+        validate_shared_state_glob(path_label, "shared_state.session_file_globs", path)?;
+    }
     for path in &shared_state.auth_files {
         validate_relative_path(path_label, "shared_state.auth_files", path)?;
     }
     Ok(SharedStatePlan {
         database_dirs: shared_state.database_dirs,
+        session_dirs: shared_state.session_dirs,
+        session_files: shared_state.session_files,
+        session_dir_globs: shared_state.session_dir_globs,
+        session_file_globs: shared_state.session_file_globs,
         auth_files: shared_state.auth_files,
     })
+}
+
+fn validate_shared_state_glob(path_label: &str, field: &str, value: &str) -> Result<()> {
+    validate_relative_path(path_label, field, value)?;
+    let wildcard_segments = value
+        .split('/')
+        .filter(|component| component.contains('*'))
+        .count();
+    ensure(!value.contains('\\'), path_label, field)?;
+    ensure(wildcard_segments <= 1, path_label, field)?;
+    ensure(!value.contains("**"), path_label, field)?;
+    Ok(())
 }
 
 fn convert_config_locator(

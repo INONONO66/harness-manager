@@ -18,7 +18,7 @@ label = "Provider auth"
 kind = "unsupported"
 
 [shared_state]
-auth_files = [".pi/agent/auth.json"]
+session_dirs = [".pi/agent/sessions"]
 
 [injection]
 strategy = "provider-config-seed"
