@@ -27,6 +27,26 @@ fn assert_shared_link_points_at(link: &std::path::Path, target: &std::path::Path
 fn shared_state(database_dirs: &[&str], auth_files: &[&str]) -> SharedStatePlan {
     SharedStatePlan {
         database_dirs: database_dirs.iter().map(|path| path.to_string()).collect(),
+        session_dirs: Vec::new(),
+        session_files: Vec::new(),
+        session_dir_globs: Vec::new(),
+        session_file_globs: Vec::new(),
+        auth_files: auth_files.iter().map(|path| path.to_string()).collect(),
+    }
+}
+
+fn shared_state_with_sessions(
+    database_dirs: &[&str],
+    session_dirs: &[&str],
+    session_files: &[&str],
+    auth_files: &[&str],
+) -> SharedStatePlan {
+    SharedStatePlan {
+        database_dirs: database_dirs.iter().map(|path| path.to_string()).collect(),
+        session_dirs: session_dirs.iter().map(|path| path.to_string()).collect(),
+        session_files: session_files.iter().map(|path| path.to_string()).collect(),
+        session_dir_globs: Vec::new(),
+        session_file_globs: Vec::new(),
         auth_files: auth_files.iter().map(|path| path.to_string()).collect(),
     }
 }
@@ -277,6 +297,10 @@ fn manifest_declared_shared_state_links_auth_and_database_files() {
     fs::write(&source_auth, "token").unwrap();
     let plan = SharedStatePlan {
         database_dirs: vec![".custom/data".to_string()],
+        session_dirs: Vec::new(),
+        session_files: Vec::new(),
+        session_dir_globs: Vec::new(),
+        session_file_globs: Vec::new(),
         auth_files: vec![".custom/auth/token.json".to_string()],
     };
     let spec = iso_plan("custom-shared", true, &[], &[], Vec::new(), None);
@@ -294,4 +318,232 @@ fn manifest_declared_shared_state_links_auth_and_database_files() {
     );
     assert_shared_link_points_at(&paths.home.join(".custom/auth/token.json"), &source_auth);
     let _ = fs::remove_dir_all(paths.base.parent().unwrap().parent().unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn session_only_sharing_links_session_dirs_and_files_into_isolated_home() {
+    // Given: a main runtime home with JSONL session state and an isolated wrapper home.
+    let mut paths = tmp_paths("session-only-sharing");
+    paths.runtime_home = paths.base.join("native-runtime-home");
+    let main_home = paths
+        .base
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("main-home");
+    let source_session_dir = main_home.join(".codex/sessions/2026/06/21");
+    let source_archive_dir = main_home.join(".codex/archived_sessions/2026/06/20");
+    let source_history = main_home.join(".codex/history.jsonl");
+    let source_config = main_home.join(".codex/config.toml");
+    fs::create_dir_all(&source_session_dir).unwrap();
+    fs::create_dir_all(&source_archive_dir).unwrap();
+    fs::write(source_session_dir.join("rollout-1.jsonl"), "session").unwrap();
+    fs::write(source_archive_dir.join("rollout-old.jsonl"), "archived").unwrap();
+    fs::write(&source_history, "history").unwrap();
+    fs::write(&source_config, "config must not link").unwrap();
+    let spec = iso_plan("session-only-sharing", true, &[], &[], Vec::new(), None);
+
+    // When: session-only shared state is prepared.
+    ensure_isolation_tree(&spec, &paths).unwrap();
+    let plan = shared_state_with_sessions(
+        &[],
+        &[".codex/sessions", ".codex/archived_sessions"],
+        &[".codex/history.jsonl"],
+        &[],
+    );
+    prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, false).unwrap();
+
+    // Then: session artifacts are linked into the wrapper's isolated home, while config is not.
+    assert_shared_link_points_at(
+        &paths
+            .home
+            .join(".codex/sessions/2026/06/21/rollout-1.jsonl"),
+        &source_session_dir.join("rollout-1.jsonl"),
+    );
+    assert_shared_link_points_at(
+        &paths
+            .home
+            .join(".codex/archived_sessions/2026/06/20/rollout-old.jsonl"),
+        &source_archive_dir.join("rollout-old.jsonl"),
+    );
+    assert_shared_link_points_at(&paths.home.join(".codex/history.jsonl"), &source_history);
+    assert!(
+        !paths.home.join(".codex/config.toml").exists(),
+        "session-only sharing must not link runtime config"
+    );
+    assert!(
+        !paths
+            .runtime_home
+            .join(".codex/sessions/2026/06/21/rollout-1.jsonl")
+            .exists(),
+        "shared session state must not target the shared runtime home"
+    );
+    let _ = fs::remove_dir_all(paths.base.parent().unwrap().parent().unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn shared_state_wildcards_link_session_dbs_without_sharing_config() {
+    // Given: OpenCode session DB files in fixed and legacy project-scoped locations.
+    let paths = tmp_paths("session-wildcards");
+    let main_home = paths
+        .base
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("main-home");
+    let data_dir = main_home.join(".local/share/opencode");
+    let project_storage = data_dir.join("project/example/storage");
+    fs::create_dir_all(&project_storage).unwrap();
+    let source_db = data_dir.join("opencode.db");
+    let source_wal = data_dir.join("opencode.db-wal");
+    let source_project_db = project_storage.join("session.db");
+    fs::write(&source_db, "db").unwrap();
+    fs::write(&source_wal, "wal").unwrap();
+    fs::write(&source_project_db, "project-db").unwrap();
+    fs::write(data_dir.join("opencode.json"), "config must not link").unwrap();
+    let spec = iso_plan("omo", true, &[], &[], Vec::new(), None);
+
+    // When: wildcard session shared state is prepared.
+    ensure_isolation_tree(&spec, &paths).unwrap();
+    let mut plan = shared_state_with_sessions(&[], &[], &[], &[]);
+    plan.session_file_globs = vec![".local/share/opencode/opencode.db*".to_string()];
+    plan.session_dir_globs = vec![".local/share/opencode/project/*/storage".to_string()];
+    prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, false).unwrap();
+
+    // Then: session DB files are linked, but adjacent config remains isolated.
+    assert_shared_link_points_at(
+        &paths.home.join(".local/share/opencode/opencode.db"),
+        &source_db,
+    );
+    assert_shared_link_points_at(
+        &paths.home.join(".local/share/opencode/opencode.db-wal"),
+        &source_wal,
+    );
+    assert_shared_link_points_at(
+        &paths
+            .home
+            .join(".local/share/opencode/project/example/storage/session.db"),
+        &source_project_db,
+    );
+    assert!(
+        !paths
+            .home
+            .join(".local/share/opencode/opencode.json")
+            .exists(),
+        "wildcard session sharing must not link adjacent config"
+    );
+    let _ = fs::remove_dir_all(paths.base.parent().unwrap().parent().unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn session_sharing_rejects_symlinked_source_root() {
+    // Given: a declared session root in the host runtime home is itself a symlink.
+    let paths = tmp_paths("session-source-root-symlink");
+    let test_root = paths.base.parent().unwrap().parent().unwrap().to_path_buf();
+    let main_home = test_root.join("main-home");
+    let external_sessions = test_root.join("external-sessions");
+    fs::create_dir_all(main_home.join(".codex")).unwrap();
+    fs::create_dir_all(&external_sessions).unwrap();
+    fs::write(external_sessions.join("rollout.jsonl"), "escaped").unwrap();
+    std::os::unix::fs::symlink(&external_sessions, main_home.join(".codex/sessions")).unwrap();
+    let spec = iso_plan("omx", true, &[], &[], Vec::new(), None);
+
+    // When: shared session state preparation reaches the symlinked source root.
+    ensure_isolation_tree(&spec, &paths).unwrap();
+    let plan = shared_state_with_sessions(&[], &[".codex/sessions"], &[], &[]);
+    let err = prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, false)
+        .expect_err("symlinked source roots must be rejected");
+
+    // Then: no escaped file is linked into the isolated runtime home.
+    assert!(
+        err.to_string().contains("source symlink"),
+        "expected source symlink rejection, got: {err:#}"
+    );
+    assert!(
+        !paths.home.join(".codex/sessions/rollout.jsonl").exists(),
+        "session sharing must not follow symlinked source roots"
+    );
+    let _ = fs::remove_dir_all(test_root);
+}
+
+#[cfg(unix)]
+#[test]
+fn session_globs_reject_symlinked_fixed_prefix() {
+    // Given: a fixed glob prefix points through a source symlink before wildcard expansion.
+    let paths = tmp_paths("session-glob-prefix-symlink");
+    let test_root = paths.base.parent().unwrap().parent().unwrap().to_path_buf();
+    let main_home = test_root.join("main-home");
+    let external_share = test_root.join("external-share");
+    fs::create_dir_all(main_home.join(".local/share")).unwrap();
+    fs::create_dir_all(external_share.join("opencode/project/example/storage")).unwrap();
+    fs::write(
+        external_share.join("opencode/project/example/storage/session.db"),
+        "escaped",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&external_share, main_home.join(".local/share/opencode")).unwrap();
+    let spec = iso_plan("omo", true, &[], &[], Vec::new(), None);
+
+    // When: wildcard session sharing reaches the symlinked fixed prefix.
+    ensure_isolation_tree(&spec, &paths).unwrap();
+    let mut plan = shared_state_with_sessions(&[], &[], &[], &[]);
+    plan.session_dir_globs = vec![".local/share/opencode/project/*/storage".to_string()];
+    let err = prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, false)
+        .expect_err("symlinked glob prefixes must be rejected");
+
+    // Then: no escaped project storage is linked into the isolated runtime home.
+    assert!(
+        err.to_string().contains("source symlink"),
+        "expected source symlink rejection, got: {err:#}"
+    );
+    assert!(
+        !paths
+            .home
+            .join(".local/share/opencode/project/example/storage/session.db")
+            .exists(),
+        "glob sharing must not follow symlinked fixed prefixes"
+    );
+    let _ = fs::remove_dir_all(test_root);
+}
+
+#[cfg(unix)]
+#[test]
+fn session_globs_reject_symlinked_matched_directory() {
+    // Given: the wildcard match is real, but the declared storage directory is a symlink.
+    let paths = tmp_paths("session-glob-storage-symlink");
+    let test_root = paths.base.parent().unwrap().parent().unwrap().to_path_buf();
+    let main_home = test_root.join("main-home");
+    let project_dir = main_home.join(".local/share/opencode/project/example");
+    let external_storage = test_root.join("external-storage");
+    fs::create_dir_all(&project_dir).unwrap();
+    fs::create_dir_all(&external_storage).unwrap();
+    fs::write(external_storage.join("session.db"), "escaped").unwrap();
+    std::os::unix::fs::symlink(&external_storage, project_dir.join("storage")).unwrap();
+    let spec = iso_plan("omo", true, &[], &[], Vec::new(), None);
+
+    // When: wildcard session sharing reaches the symlinked matched directory.
+    ensure_isolation_tree(&spec, &paths).unwrap();
+    let mut plan = shared_state_with_sessions(&[], &[], &[], &[]);
+    plan.session_dir_globs = vec![".local/share/opencode/project/*/storage".to_string()];
+    let err = prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, false)
+        .expect_err("symlinked matched directories must be rejected");
+
+    // Then: no escaped project storage is linked into the isolated runtime home.
+    assert!(
+        err.to_string().contains("source symlink"),
+        "expected source symlink rejection, got: {err:#}"
+    );
+    assert!(
+        !paths
+            .home
+            .join(".local/share/opencode/project/example/storage/session.db")
+            .exists(),
+        "glob sharing must not follow symlinked matched directories"
+    );
+    let _ = fs::remove_dir_all(test_root);
 }
