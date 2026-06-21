@@ -172,3 +172,66 @@ check_for_update_on_startup = false
         "lost user comment 2: {contents}"
     );
 }
+
+#[test]
+fn codex_seed_creates_apikey_auth_json_when_absent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    let resolved = proxy_profile_with_gateway(vec!["openai"], "codex-bearer-abcd");
+    let mut env: HashMap<String, String> = HashMap::new();
+
+    apply_codex_config_seed_strategy(&codex_config_seed_injection(), &resolved, &mut env, home)
+        .unwrap();
+
+    let auth = fs::read_to_string(home.join(".codex/auth.json")).expect("auth.json written");
+    let parsed: serde_json::Value = serde_json::from_str(&auth).unwrap();
+    assert_eq!(parsed["auth_mode"], "apikey");
+    assert_eq!(parsed["OPENAI_API_KEY"], "codex-bearer-abcd");
+    assert!(parsed["tokens"].is_null());
+}
+
+#[test]
+fn codex_seed_does_not_clobber_symlinked_host_auth_json() {
+    let host = tempfile::tempdir().unwrap();
+    let host_auth = host.path().join("auth.json");
+    fs::write(&host_auth, r#"{"auth_mode":"chatgpt"}"#).unwrap();
+
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    let auth_path = home.join(".codex/auth.json");
+    fs::create_dir_all(auth_path.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&host_auth, &auth_path).unwrap();
+
+    let resolved = proxy_profile_with_gateway(vec!["openai"], "codex-bearer-abcd");
+    let mut env: HashMap<String, String> = HashMap::new();
+    apply_codex_config_seed_strategy(&codex_config_seed_injection(), &resolved, &mut env, home)
+        .unwrap();
+
+    assert_eq!(
+        fs::read_to_string(&host_auth).unwrap(),
+        r#"{"auth_mode":"chatgpt"}"#,
+        "host auth via symlink must not be overwritten"
+    );
+}
+
+#[test]
+fn codex_seed_rejects_symlinked_codex_dir() {
+    let host = tempfile::tempdir().unwrap();
+    let host_codex = host.path().join("real-codex");
+    fs::create_dir_all(&host_codex).unwrap();
+
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    std::os::unix::fs::symlink(&host_codex, home.join(".codex")).unwrap();
+
+    let resolved = proxy_profile_with_gateway(vec!["openai"], "codex-bearer-abcd");
+    let mut env: HashMap<String, String> = HashMap::new();
+    let result =
+        apply_codex_config_seed_strategy(&codex_config_seed_injection(), &resolved, &mut env, home);
+
+    assert!(result.is_err(), "must reject a symlinked .codex dir");
+    assert!(
+        fs::read_dir(&host_codex).unwrap().next().is_none(),
+        "nothing must be written into the symlinked host dir"
+    );
+}
