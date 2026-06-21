@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -142,8 +143,28 @@ pub fn apply_codex_config_seed_strategy(
     }
 
     let written_path = write_codex_config_file(&config_path, doc.to_string())?;
+    seed_codex_api_key_auth(&config_path, home_dir, &bearer)?;
     apply_codex_env(spec, env, bearer);
     Ok(written_path)
+}
+
+fn seed_codex_api_key_auth(config_path: &Path, home_dir: &Path, bearer: &str) -> Result<()> {
+    let auth_path = config_path.with_file_name("auth.json");
+    // symlink_metadata (not exists): runtime launches symlink the host's auth.json,
+    // and following that symlink would overwrite the user's real ~/.codex/auth.json.
+    if fs::symlink_metadata(&auth_path).is_ok() {
+        return Ok(());
+    }
+    ensure_safe_write_path(&auth_path, home_dir, "injection.auth_path")?;
+    let auth = serde_json::json!({
+        "auth_mode": "apikey",
+        "OPENAI_API_KEY": bearer,
+        "tokens": null,
+        "last_refresh": null,
+    });
+    let serialized = format!("{}\n", serde_json::to_string_pretty(&auth)?);
+    write_codex_config_file(&auth_path, serialized)?;
+    Ok(())
 }
 
 fn write_codex_config_file(config_path: &Path, serialized: String) -> Result<PathBuf> {
@@ -152,6 +173,7 @@ fn write_codex_config_file(config_path: &Path, serialized: String) -> Result<Pat
         let mut tmp = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
+            .mode(0o600)
             .open(&tmp_path)
             .with_context(|| format!("failed to create temp {}", tmp_path.display()))?;
         tmp.write_all(serialized.as_bytes())
