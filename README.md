@@ -52,6 +52,14 @@ isolation, and secret handling.
 curl -fsSL https://raw.githubusercontent.com/INONONO66/harness-manager/main/scripts/install.sh | sh
 ```
 
+Or install the npm wrapper package:
+
+```bash
+npm install -g harness-manager
+```
+
+The npm package downloads the matching GitHub Release binary during install.
+
 Install and copy built-in manifests in one step:
 
 ```bash
@@ -219,9 +227,9 @@ Full schema and plugin packaging guidance: [docs/harness-manifest.md](docs/harne
 - Launch binaries must be executable names, not paths or shell snippets.
 - Package install strategies are structured: `npm-global`, `npm-isolated`, `npx-installer`, `bunx-installer`, `python-tool`, `custom`, or `manual`. The `npm-isolated` kind installs into the harness isolation home (`$XDG_DATA_HOME/hm/runtimes/<id>/home/.npm`) via `NPM_CONFIG_PREFIX` so the package's binaries never appear on the host `PATH`; `hm use <harness>` adds the declared package bin dir to the launch `PATH` and exec's the binary directly. Use this for harnesses whose CLI you want gated behind `hm use`.
 - Static env keys cannot be host secrets such as `*_TOKEN`, `*_SECRET`, or `*_API_KEY`.
-- Seed files must live under `{home}/`, `{runtime_home}/`, `{state}/`, or `{tmp}/`; for harnesses, `{runtime_home}` resolves to the harness runtime root so runtime session DBs, auth, MCP config, plugins, hooks, prompts, and trust state stay isolated per harness.
-- hm links known runtime database files back to the user's main runtime DBs: Codex `*.sqlite*` under `~/.codex`, and OpenCode `*.db*` under `~/.local/share/opencode`. Harness config/plugin files stay isolated, while conversation/log/memory DBs stay shared.
-- Host auth files are shared only for isolated launches without a profile. When a profile is applied, profile-driven gateway/API credentials are used and host OAuth/auth files are not linked into the harness home.
+- Seed files must live under `{home}/`, `{runtime_home}/`, `{state}/`, or `{tmp}/`. Bundled wrappers keep config, plugins, cache, logs, and seed files under the wrapper's isolated `{home}` or `{state}`.
+- hm links only manifest-declared session/transcript artifacts from the user's native runtime home into the isolated runtime home. Bundled policies cover Codex sessions/history, OpenCode session stores and `opencode.db*`, Claude projects/transcripts, Pi sessions, Gajae session DBs, and Grok sessions.
+- Bundled runtimes do not share host auth files. Profile launches use profile-driven gateway/API credentials; non-profile launches keep auth isolated unless a custom runtime manifest explicitly declares `auth_files`.
 - Package-manager fallback choices are recorded after install and preferred for later update/remove, so `uv`/`pipx`/`pip` and `bunx`/`npx` paths do not drift silently between lifecycle commands.
 - Side-effecting operations take a per-harness runtime lock under `$XDG_DATA_HOME/hm/runtimes/.locks`.
 
@@ -269,6 +277,18 @@ secret://env/VAR_NAME
 secret://keychain/service-name
 secret://hm/<secret-name>          # hm's own secret store
 ```
+
+## npm Publishing
+
+The npm package is published through GitHub Actions trusted publishing. Do not add `NPM_TOKEN` or `NODE_AUTH_TOKEN` to the publish job; npm uses GitHub OIDC with `id-token: write`.
+
+The first-ever npm package version cannot be created by OIDC because npm only allows trusted publisher configuration after the package exists. Create the package once, then configure npm Trusted Publisher for GitHub Actions:
+
+- Owner/repository: `INONONO66/harness-manager`
+- Workflow filename: `npm-publish.yml`
+- Allowed action: `npm publish`
+
+After that one-time setup, publishing a GitHub tag runs `.github/workflows/release.yml`; after that workflow succeeds, `.github/workflows/npm-publish.yml` runs automatically, verifies the tag matches `package.json`, installs the latest npm CLI, checks that token env vars are absent, validates the package, and runs `npm publish --access public`.
 
 ## Runtime Support
 
