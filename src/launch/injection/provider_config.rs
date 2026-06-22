@@ -16,6 +16,7 @@ use super::validation::{
     validate_header_name_at_runtime,
 };
 
+mod host;
 mod secure_write;
 
 #[derive(Debug, Clone)]
@@ -136,6 +137,7 @@ pub fn apply_provider_config_seed_strategy(
         }
         body = Value::Object(Map::new());
     }
+    host::merge_host_provider_config(&mut body, &spec.root_key, &config_path, home_dir)?;
 
     let profile_provider_headers = resolved.gateway.as_ref().map(|gw| &gw.provider_headers);
 
