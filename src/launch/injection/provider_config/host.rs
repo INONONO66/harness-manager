@@ -9,6 +9,7 @@ pub(super) fn merge_host_provider_config(
     root_key: &str,
     config_path: &Path,
     isolation_home: &Path,
+    bearer: &str,
 ) -> Result<()> {
     let Some(host_path) = host_config_path(config_path, isolation_home) else {
         return Ok(());
@@ -28,7 +29,8 @@ pub(super) fn merge_host_provider_config(
             host_path.display()
         )
     })?;
-    merge_missing_provider_entries(target, root_key, &host);
+    merge_missing_provider_entries(target, root_key, &host, bearer);
+    resolve_host_secret_refs_in_place(target, bearer);
     Ok(())
 }
 
@@ -58,7 +60,7 @@ fn is_hm_runtime_home(path: &Path) -> bool {
     false
 }
 
-fn merge_missing_provider_entries(target: &mut Value, root_key: &str, host: &Value) {
+fn merge_missing_provider_entries(target: &mut Value, root_key: &str, host: &Value, bearer: &str) {
     let Some(host_providers) = value_at_path(host, root_key).and_then(Value::as_object) else {
         return;
     };
@@ -66,8 +68,42 @@ fn merge_missing_provider_entries(target: &mut Value, root_key: &str, host: &Val
     for (provider, config) in host_providers {
         target_providers
             .entry(provider.clone())
-            .or_insert_with(|| config.clone());
+            .or_insert_with(|| resolve_host_secret_refs(config.clone(), bearer));
     }
+}
+
+fn resolve_host_secret_refs(mut value: Value, bearer: &str) -> Value {
+    resolve_host_secret_refs_in_place(&mut value, bearer);
+    value
+}
+
+fn resolve_host_secret_refs_in_place(value: &mut Value, bearer: &str) {
+    match value {
+        Value::String(text) => {
+            if is_env_ref(text) {
+                *text = bearer.to_string();
+            } else if let Some(rest) = text.strip_prefix("Bearer ") {
+                if is_env_ref(rest) {
+                    *text = format!("Bearer {bearer}");
+                }
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                resolve_host_secret_refs_in_place(value, bearer);
+            }
+        }
+        Value::Object(map) => {
+            for value in map.values_mut() {
+                resolve_host_secret_refs_in_place(value, bearer);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+fn is_env_ref(value: &str) -> bool {
+    (value.starts_with("{env:") || value.starts_with("{file:")) && value.ends_with('}')
 }
 
 fn value_at_path<'a>(value: &'a Value, dotted_path: &str) -> Option<&'a Value> {
@@ -101,7 +137,7 @@ fn object_at_path<'a>(value: &'a mut Value, dotted_path: &str) -> &'a mut Map<St
 
 #[cfg(test)]
 mod tests {
-    use super::merge_missing_provider_entries;
+    use super::{merge_missing_provider_entries, resolve_host_secret_refs_in_place};
     use serde_json::json;
 
     #[test]
@@ -133,7 +169,7 @@ mod tests {
             }
         });
 
-        merge_missing_provider_entries(&mut target, "provider", &host);
+        merge_missing_provider_entries(&mut target, "provider", &host, "profile-key");
 
         assert_eq!(
             target["provider"]["anthropic"]["options"]["baseURL"].as_str(),
@@ -142,6 +178,70 @@ mod tests {
         assert_eq!(
             target["provider"]["zai-coding-plan"]["options"]["baseURL"].as_str(),
             Some("https://proxy.example/v1")
+        );
+        assert_eq!(
+            target["provider"]["zai-coding-plan"]["options"]["apiKey"].as_str(),
+            Some("host-key")
+        );
+    }
+
+    #[test]
+    fn host_provider_merge_resolves_env_placeholders_for_imported_custom_providers() {
+        let mut target = json!({ "provider": {} });
+        let host = json!({
+            "provider": {
+                "zai-coding-plan": {
+                    "options": {
+                        "baseURL": "https://proxy.example/v1",
+                        "apiKey": "{file:/Users/example/.config/agent-proxy/macbook.key}",
+                        "headers": {
+                            "Authorization": "Bearer {file:/Users/example/.config/agent-proxy/macbook.key}",
+                            "x-api-key": "{file:/Users/example/.config/agent-proxy/macbook.key}"
+                        }
+                    }
+                }
+            }
+        });
+
+        merge_missing_provider_entries(&mut target, "provider", &host, "profile-key");
+
+        let options = &target["provider"]["zai-coding-plan"]["options"];
+        assert_eq!(options["apiKey"].as_str(), Some("profile-key"));
+        assert_eq!(
+            options["headers"]["Authorization"].as_str(),
+            Some("Bearer profile-key")
+        );
+        assert_eq!(
+            options["headers"]["x-api-key"].as_str(),
+            Some("profile-key")
+        );
+    }
+
+    #[test]
+    fn host_provider_merge_resolves_placeholders_already_in_target_config() {
+        let mut target = json!({
+            "provider": {
+                "zai-coding-plan": {
+                    "options": {
+                        "baseURL": "https://proxy.example/v1",
+                        "apiKey": "{file:/Users/example/.config/agent-proxy/macbook.key}",
+                        "headers": {
+                            "Authorization": "Bearer {file:/Users/example/.config/agent-proxy/macbook.key}"
+                        }
+                    }
+                }
+            }
+        });
+        let host = json!({ "provider": {} });
+
+        merge_missing_provider_entries(&mut target, "provider", &host, "profile-key");
+        resolve_host_secret_refs_in_place(&mut target, "profile-key");
+
+        let options = &target["provider"]["zai-coding-plan"]["options"];
+        assert_eq!(options["apiKey"].as_str(), Some("profile-key"));
+        assert_eq!(
+            options["headers"]["Authorization"].as_str(),
+            Some("Bearer profile-key")
         );
     }
 }

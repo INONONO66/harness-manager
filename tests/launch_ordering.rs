@@ -576,7 +576,11 @@ fn opencode_profile_launch_imports_host_custom_providers() {
     "zai-coding-plan": {
       "options": {
         "baseURL": "https://host-custom.example/v1",
-        "apiKey": "host-custom"
+        "apiKey": "{file:/Users/example/.config/agent-proxy/macbook.key}",
+        "headers": {
+          "Authorization": "Bearer {file:/Users/example/.config/agent-proxy/macbook.key}",
+          "x-api-key": "{file:/Users/example/.config/agent-proxy/macbook.key}"
+        }
       }
     }
   }
@@ -616,6 +620,16 @@ fn opencode_profile_launch_imports_host_custom_providers() {
         config["provider"]["zai-coding-plan"]["options"]["baseURL"].as_str(),
         Some("https://host-custom.example/v1"),
         "host custom provider must be imported into isolated OpenCode config"
+    );
+    assert_eq!(
+        config["provider"]["zai-coding-plan"]["options"]["apiKey"].as_str(),
+        Some("qa-token"),
+        "host custom provider env placeholder must resolve to the active profile bearer"
+    );
+    assert_eq!(
+        config["provider"]["zai-coding-plan"]["options"]["headers"]["Authorization"].as_str(),
+        Some("Bearer qa-token"),
+        "host custom provider bearer header placeholder must resolve to the active profile bearer"
     );
 }
 
