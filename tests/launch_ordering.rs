@@ -547,6 +547,79 @@ fn bundled_session_only_launch_removes_stale_legacy_host_auth_link() {
 }
 
 #[test]
+fn opencode_profile_launch_imports_host_custom_providers() {
+    let suite = unique_suite("opencode-imports-host-custom-providers");
+    let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
+    let tmp_data = std::env::temp_dir().join(format!("{suite}-data"));
+    let tmp_home = std::env::temp_dir().join(format!("{suite}-home"));
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+    std::fs::create_dir_all(tmp_cfg.join("hm")).unwrap();
+    std::fs::create_dir_all(tmp_home.join(".config/opencode")).unwrap();
+    std::fs::create_dir_all(tmp_home.join(".local/share/opencode/storage/session")).unwrap();
+    std::fs::write(
+        tmp_cfg.join("hm/config.toml"),
+        "default_profile = \"proxy\"\n[profiles.proxy.gateway]\nbase_url = \"http://127.0.0.1:9/v1\"\nbearer = \"qa-token\"\nproviders = [\"anthropic\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp_home.join(".config/opencode/opencode.json"),
+        r#"{
+  "provider": {
+    "anthropic": {
+      "options": {
+        "baseURL": "https://host-should-not-win.example/v1",
+        "apiKey": "host-anthropic"
+      }
+    },
+    "zai-coding-plan": {
+      "options": {
+        "baseURL": "https://host-custom.example/v1",
+        "apiKey": "host-custom"
+      }
+    }
+  }
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_hm"))
+        .args(["use", "omo", "--print-env"])
+        .env("XDG_CONFIG_HOME", &tmp_cfg)
+        .env("XDG_DATA_HOME", &tmp_data)
+        .env("HOME", &tmp_home)
+        .env_remove("ANTHROPIC_API_KEY")
+        .output()
+        .expect("spawn hm");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let config_path = tmp_data.join("hm/runtimes/omo/home/.config/opencode/opencode.json");
+    let config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+
+    let _ = std::fs::remove_dir_all(&tmp_cfg);
+    let _ = std::fs::remove_dir_all(&tmp_data);
+    let _ = std::fs::remove_dir_all(&tmp_home);
+
+    assert!(
+        output.status.success(),
+        "opencode profile launch should assemble env; stderr was: {stderr}"
+    );
+    assert_eq!(
+        config["provider"]["anthropic"]["options"]["baseURL"].as_str(),
+        Some("http://127.0.0.1:9/v1"),
+        "profile provider must still override host provider"
+    );
+    assert_eq!(
+        config["provider"]["zai-coding-plan"]["options"]["baseURL"].as_str(),
+        Some("https://host-custom.example/v1"),
+        "host custom provider must be imported into isolated OpenCode config"
+    );
+}
+
+#[test]
 fn missing_explicit_xdg_config_defaults_instead_of_reading_missing_file() {
     let suite = unique_suite("missing-explicit-xdg-config");
     let tmp_cfg = std::env::temp_dir().join(format!("{suite}-cfg"));
