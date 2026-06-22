@@ -1,6 +1,6 @@
 [package]
 name = "harness-manager"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2021"
 description = "Agent Runtime Manager — detect, manage, and launch AI coding agent runtimes from one place"
 license = "MIT"
