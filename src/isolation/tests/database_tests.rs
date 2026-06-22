@@ -410,7 +410,83 @@ fn session_sharing_replaces_empty_isolated_session_stub() {
     );
     prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, false).unwrap();
 
-    assert_shared_link_points_at(&local_session, &source_session);
+    assert_shared_link_points_at(
+        &paths
+            .home
+            .join(".local/share/opencode/storage/session_diff"),
+        &source_session_dir,
+    );
+    assert_eq!(
+        fs::read_to_string(&source_session).unwrap(),
+        "{}",
+        "stale local session stub must not replace the host session file"
+    );
+    let _ = fs::remove_dir_all(paths.base.parent().unwrap().parent().unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn session_sharing_migrates_existing_isolated_session_state_before_linking() {
+    let paths = tmp_paths("session-migrate-stale-isolation");
+    let main_home = paths
+        .base
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("main-home");
+    let source_sessions = main_home.join(".codex/sessions");
+    let source_history = main_home.join(".codex/history.jsonl");
+    fs::create_dir_all(source_sessions.join("2026/06/22")).unwrap();
+    fs::write(
+        source_sessions.join("2026/06/22/existing.jsonl"),
+        "host-session",
+    )
+    .unwrap();
+    fs::write(&source_history, "host-history\n").unwrap();
+
+    ensure_isolation_tree(
+        &iso_plan("lazycodex", true, &[], &[], Vec::new(), None),
+        &paths,
+    )
+    .unwrap();
+    let local_sessions = paths.home.join(".codex/sessions");
+    let local_history = paths.home.join(".codex/history.jsonl");
+    fs::create_dir_all(local_sessions.join("2026/06/22")).unwrap();
+    fs::write(
+        local_sessions.join("2026/06/22/new-local.jsonl"),
+        "local-session",
+    )
+    .unwrap();
+    fs::write(
+        local_sessions.join("2026/06/22/existing.jsonl"),
+        "conflicting-local-session",
+    )
+    .unwrap();
+    fs::write(&local_history, "local-history\n").unwrap();
+
+    let plan =
+        shared_state_with_sessions(&[], &[".codex/sessions"], &[".codex/history.jsonl"], &[]);
+    prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, false).unwrap();
+
+    assert_shared_link_points_at(&local_sessions, &source_sessions);
+    assert_shared_link_points_at(&local_history, &source_history);
+    assert_eq!(
+        fs::read_to_string(source_sessions.join("2026/06/22/new-local.jsonl")).unwrap(),
+        "local-session"
+    );
+    assert!(
+        source_sessions
+            .join("2026/06/22/.hm-migrated-1-existing.jsonl")
+            .is_file(),
+        "conflicting local session file must be preserved beside host session"
+    );
+    assert!(
+        main_home
+            .join(".codex/.hm-migrated-1-history.jsonl")
+            .is_file(),
+        "conflicting local history must be preserved beside host history"
+    );
     let _ = fs::remove_dir_all(paths.base.parent().unwrap().parent().unwrap());
 }
 

@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -49,6 +49,17 @@ fn link_session_dir(source_dir: &Path, target_dir: &Path, paths: &IsolationPaths
                 "session link dir {} points at a different directory",
                 target_dir.display(),
             );
+        }
+        Ok(metadata) if metadata.is_dir() => {
+            migrate_existing_session_dir(source_dir, target_dir, paths)?;
+            create_file_symlink(source_dir, target_dir).with_context(|| {
+                format!(
+                    "link session dir {} -> {}",
+                    target_dir.display(),
+                    source_dir.display()
+                )
+            })?;
+            Ok(true)
         }
         Ok(_) => Ok(false),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -178,6 +189,13 @@ pub(super) fn link_shared_file(
             })?;
             Ok(())
         }
+        Ok(metadata) if label == "session file" && metadata.is_file() => {
+            migrate_existing_session_file(source, target)?;
+            create_file_symlink(source, target).with_context(|| {
+                format!("link {label} {} -> {}", target.display(), source.display())
+            })?;
+            Ok(())
+        }
         Ok(_) => anyhow::bail!(
             "{} {} already exists and is not a shared link",
             label,
@@ -191,6 +209,116 @@ pub(super) fn link_shared_file(
         }
         Err(err) => Err(err).with_context(|| format!("inspect {}", target.display())),
     }
+}
+
+fn migrate_existing_session_dir(
+    source_dir: &Path,
+    target_dir: &Path,
+    paths: &IsolationPaths,
+) -> Result<()> {
+    let target_base = shared_target_base(target_dir, paths, "session link dir")?;
+    ensure_under_base(target_dir, target_base, "session link dir")?;
+    reject_existing_symlink_chain(target_dir, target_base, "session link dir")?;
+    migrate_session_dir_entries(source_dir, target_dir, target_dir)?;
+    fs::remove_dir_all(target_dir)
+        .with_context(|| format!("remove migrated session dir {}", target_dir.display()))
+}
+
+fn migrate_session_dir_entries(
+    source_dir: &Path,
+    root_target: &Path,
+    current: &Path,
+) -> Result<()> {
+    for entry in fs::read_dir(current).with_context(|| format!("read {}", current.display()))? {
+        let entry = entry?;
+        let target = entry.path();
+        let metadata = fs::symlink_metadata(&target)
+            .with_context(|| format!("inspect {}", target.display()))?;
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        if metadata.is_dir() {
+            migrate_session_dir_entries(source_dir, root_target, &target)?;
+            continue;
+        }
+        if !metadata.is_file() || !is_session_file(&target) {
+            anyhow::bail!(
+                "session link dir {} contains non-session file {}",
+                root_target.display(),
+                target.display()
+            );
+        }
+        let relative = target
+            .strip_prefix(root_target)
+            .with_context(|| format!("resolve migrated session path {}", target.display()))?;
+        migrate_session_file_to(source_dir.join(relative), &target)?;
+    }
+    Ok(())
+}
+
+fn migrate_existing_session_file(source: &Path, target: &Path) -> Result<()> {
+    if !is_session_file(target) {
+        anyhow::bail!(
+            "session file {} is not a recognized session artifact",
+            target.display()
+        );
+    }
+    migrate_session_file_to(source.to_path_buf(), target)
+}
+
+fn migrate_session_file_to(source: PathBuf, target: &Path) -> Result<()> {
+    if let Some(parent) = source.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create migrated session parent {}", parent.display()))?;
+    }
+    if !source.exists() {
+        fs::rename(target, &source).with_context(|| {
+            format!(
+                "migrate session file {} -> {}",
+                target.display(),
+                source.display()
+            )
+        })?;
+        return Ok(());
+    }
+    if files_equal(target, &source)? {
+        fs::remove_file(target).with_context(|| {
+            format!(
+                "remove duplicate migrated session file {}",
+                target.display()
+            )
+        })?;
+        return Ok(());
+    }
+    let migrated = unique_migrated_path(&source);
+    fs::rename(target, &migrated).with_context(|| {
+        format!(
+            "migrate conflicting session file {} -> {}",
+            target.display(),
+            migrated.display()
+        )
+    })
+}
+
+fn files_equal(left: &Path, right: &Path) -> Result<bool> {
+    let left_bytes = fs::read(left).with_context(|| format!("read {}", left.display()))?;
+    let right_bytes = fs::read(right).with_context(|| format!("read {}", right.display()))?;
+    Ok(left_bytes == right_bytes)
+}
+
+fn unique_migrated_path(source: &Path) -> PathBuf {
+    let parent = source.parent().unwrap_or_else(|| Path::new(""));
+    let file_name = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("session");
+    for index in 1.. {
+        let candidate = parent.join(format!(".hm-migrated-{index}-{file_name}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    unreachable!("unbounded migrated path search must return")
 }
 
 pub(super) fn reject_source_symlink_chain(base: &Path, path: &Path, label: &str) -> Result<()> {
