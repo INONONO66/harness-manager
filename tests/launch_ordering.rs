@@ -332,12 +332,12 @@ CUSTOM_AGENT_HOME = "{home}/.custom-agent"
 
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let isolated_auth = tmp_data.join("hm/runtimes/custom-agent/home/.custom-agent/auth.json");
-    let isolated_session =
-        tmp_data.join("hm/runtimes/custom-agent/home/.custom-agent/sessions/rollout.jsonl");
+    let isolated_session_dir =
+        tmp_data.join("hm/runtimes/custom-agent/home/.custom-agent/sessions");
     let auth_is_link = std::fs::symlink_metadata(&isolated_auth)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false);
-    let session_is_link = std::fs::symlink_metadata(&isolated_session)
+    let session_is_link = std::fs::symlink_metadata(&isolated_session_dir)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false);
 
@@ -388,11 +388,11 @@ fn no_profile_launch_shares_host_sessions_without_host_auth() {
 
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let isolated_auth = tmp_data.join("hm/runtimes/omx/home/.codex/auth.json");
-    let isolated_session = tmp_data.join("hm/runtimes/omx/home/.codex/sessions/rollout.jsonl");
+    let isolated_session_dir = tmp_data.join("hm/runtimes/omx/home/.codex/sessions");
     let auth_is_link = std::fs::symlink_metadata(&isolated_auth)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false);
-    let session_is_link = std::fs::symlink_metadata(&isolated_session)
+    let session_is_link = std::fs::symlink_metadata(&isolated_session_dir)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false);
 
@@ -442,11 +442,11 @@ fn profile_launch_keeps_session_links_without_host_auth() {
         .expect("spawn hm");
 
     let auth = tmp_data.join("hm/runtimes/omx/home/.codex/auth.json");
-    let session = tmp_data.join("hm/runtimes/omx/home/.codex/sessions/rollout.jsonl");
+    let session_dir = tmp_data.join("hm/runtimes/omx/home/.codex/sessions");
     let auth_was_link = std::fs::symlink_metadata(&auth)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false);
-    let session_was_link = std::fs::symlink_metadata(&session)
+    let session_was_link = std::fs::symlink_metadata(&session_dir)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false);
 
@@ -470,7 +470,7 @@ fn profile_launch_keeps_session_links_without_host_auth() {
     let auth_is_link_after_profile = std::fs::symlink_metadata(&auth)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false);
-    let session_still_link = std::fs::symlink_metadata(&session)
+    let session_still_link = std::fs::symlink_metadata(&session_dir)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false);
 

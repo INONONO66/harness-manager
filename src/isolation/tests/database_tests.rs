@@ -357,16 +357,12 @@ fn session_only_sharing_links_session_dirs_and_files_into_isolated_home() {
 
     // Then: session artifacts are linked into the wrapper's isolated home, while config is not.
     assert_shared_link_points_at(
-        &paths
-            .home
-            .join(".codex/sessions/2026/06/21/rollout-1.jsonl"),
-        &source_session_dir.join("rollout-1.jsonl"),
+        &paths.home.join(".codex/sessions"),
+        &main_home.join(".codex/sessions"),
     );
     assert_shared_link_points_at(
-        &paths
-            .home
-            .join(".codex/archived_sessions/2026/06/20/rollout-old.jsonl"),
-        &source_archive_dir.join("rollout-old.jsonl"),
+        &paths.home.join(".codex/archived_sessions"),
+        &main_home.join(".codex/archived_sessions"),
     );
     assert_shared_link_points_at(&paths.home.join(".codex/history.jsonl"), &source_history);
     assert!(
@@ -380,6 +376,41 @@ fn session_only_sharing_links_session_dirs_and_files_into_isolated_home() {
             .exists(),
         "shared session state must not target the shared runtime home"
     );
+    let _ = fs::remove_dir_all(paths.base.parent().unwrap().parent().unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn session_sharing_replaces_empty_isolated_session_stub() {
+    let paths = tmp_paths("session-stub-relink");
+    let main_home = paths
+        .base
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("main-home");
+    let source_session_dir = main_home.join(".local/share/opencode/storage/session_diff");
+    fs::create_dir_all(&source_session_dir).unwrap();
+    let source_session = source_session_dir.join("ses_123.json");
+    fs::write(&source_session, "{}").unwrap();
+
+    ensure_isolation_tree(&iso_plan("omo", true, &[], &[], Vec::new(), None), &paths).unwrap();
+    let local_session = paths
+        .home
+        .join(".local/share/opencode/storage/session_diff/ses_123.json");
+    fs::create_dir_all(local_session.parent().unwrap()).unwrap();
+    fs::write(&local_session, "{}").unwrap();
+
+    let plan = shared_state_with_sessions(
+        &[],
+        &[".local/share/opencode/storage/session_diff"],
+        &[],
+        &[],
+    );
+    prepare_runtime_shared_state_from_home(Some(&plan), &paths, &main_home, false).unwrap();
+
+    assert_shared_link_points_at(&local_session, &source_session);
     let _ = fs::remove_dir_all(paths.base.parent().unwrap().parent().unwrap());
 }
 
@@ -426,9 +457,13 @@ fn shared_state_wildcards_link_session_dbs_without_sharing_config() {
     assert_shared_link_points_at(
         &paths
             .home
-            .join(".local/share/opencode/project/example/storage/session.db"),
-        &source_project_db,
+            .join(".local/share/opencode/project/example/storage"),
+        &project_storage,
     );
+    assert!(paths
+        .home
+        .join(".local/share/opencode/project/example/storage/session.db")
+        .exists());
     assert!(
         !paths
             .home

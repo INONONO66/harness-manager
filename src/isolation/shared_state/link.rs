@@ -16,9 +16,53 @@ pub(super) fn link_session_tree(
     if !source_dir.exists() {
         return Ok(());
     }
+    if link_session_dir(source_dir, target_dir, paths)? {
+        return Ok(());
+    }
     let target_base = shared_target_base(target_dir, paths, "session link dir")?;
     create_private_dir_all(target_dir, target_base, "session link dir")?;
     link_session_tree_entries(source_dir, source_dir, target_dir, paths)
+}
+
+fn link_session_dir(source_dir: &Path, target_dir: &Path, paths: &IsolationPaths) -> Result<bool> {
+    let metadata = fs::symlink_metadata(source_dir)
+        .with_context(|| format!("inspect {}", source_dir.display()))?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Ok(false);
+    }
+    let target_base = shared_target_base(target_dir, paths, "session link dir")?;
+    ensure_under_base(target_dir, target_base, "session link dir")?;
+    let parent = target_dir
+        .parent()
+        .with_context(|| format!("session link dir has no parent: {}", target_dir.display()))?;
+    create_private_dir_all(parent, target_base, "session link dir")?;
+    reject_existing_symlink_chain(parent, target_base, "session link dir")?;
+    match fs::symlink_metadata(target_dir) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            if fs::read_link(target_dir)
+                .with_context(|| format!("read link {}", target_dir.display()))?
+                == source_dir
+            {
+                return Ok(true);
+            }
+            anyhow::bail!(
+                "session link dir {} points at a different directory",
+                target_dir.display(),
+            );
+        }
+        Ok(_) => Ok(false),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            create_file_symlink(source_dir, target_dir).with_context(|| {
+                format!(
+                    "link session dir {} -> {}",
+                    target_dir.display(),
+                    source_dir.display()
+                )
+            })?;
+            Ok(true)
+        }
+        Err(err) => Err(err).with_context(|| format!("inspect {}", target_dir.display())),
+    }
 }
 
 fn link_session_tree_entries(
@@ -126,6 +170,14 @@ pub(super) fn link_shared_file(
             }
             anyhow::bail!("{} {} points at a different file", label, target.display(),);
         }
+        Ok(metadata) if can_replace_session_stub(target, &metadata, label)? => {
+            fs::remove_file(target)
+                .with_context(|| format!("remove stale {label} {}", target.display()))?;
+            create_file_symlink(source, target).with_context(|| {
+                format!("link {label} {} -> {}", target.display(), source.display())
+            })?;
+            Ok(())
+        }
         Ok(_) => anyhow::bail!(
             "{} {} already exists and is not a shared link",
             label,
@@ -205,6 +257,15 @@ fn is_database_file(path: &Path) -> bool {
         || name.ends_with(".db")
         || name.ends_with(".db-wal")
         || name.ends_with(".db-shm")
+}
+
+fn can_replace_session_stub(target: &Path, metadata: &fs::Metadata, label: &str) -> Result<bool> {
+    if label != "session file" || !metadata.is_file() || metadata.len() > 2 {
+        return Ok(false);
+    }
+    let contents = fs::read(target)
+        .with_context(|| format!("read existing session file {}", target.display()))?;
+    Ok(matches!(contents.as_slice(), b"" | b"{}" | b"[]"))
 }
 
 fn create_file_symlink(source: &Path, target: &Path) -> std::io::Result<()> {
