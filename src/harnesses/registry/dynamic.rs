@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use colored::Colorize;
 
 use crate::harnesses::builtin::BUILTIN_MANIFESTS;
 use crate::harnesses::manifest::{parse_toml, ManifestHarnessSpec};
@@ -20,6 +21,7 @@ struct LoadedHarness {
     spec: ManifestHarnessSpec,
     routes: HashSet<String>,
     origin: ManifestOrigin,
+    content: String,
 }
 
 #[derive(Debug, Clone)]
@@ -117,12 +119,21 @@ impl HarnessRegistry {
                     );
                 }
                 for idx in shadowed.into_iter().rev() {
-                    loaded.swap_remove(idx);
+                    let removed = loaded.swap_remove(idx);
+                    if removed.content != content {
+                        eprintln!(
+                            "{} builtin harness '{}' overridden by user manifest '{}'",
+                            "note:".yellow().bold(),
+                            removed.spec.id,
+                            label
+                        );
+                    }
                 }
                 loaded.push(LoadedHarness {
                     spec,
                     routes,
                     origin,
+                    content: content.clone(),
                 });
             }
         }
