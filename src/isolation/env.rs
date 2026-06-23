@@ -70,6 +70,13 @@ const SAFE_INHERITED_ENV: &[&str] = &[
     "SystemRoot",
     "COMSPEC",
     "PATHEXT",
+    "SSH_AUTH_SOCK",
+    "GH_CONFIG_DIR",
+    "GIT_CONFIG_GLOBAL",
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "BUN_INSTALL",
+    "NPM_CONFIG_USERCONFIG",
 ];
 
 fn is_safe_inherited_env_key(key: &str) -> bool {
@@ -109,6 +116,39 @@ pub fn build_sanitized_isolation_env(
             .filter(|dir| !dir.contains("mise/shims") && !dir.contains("asdf/shims"))
             .collect();
         out.insert("PATH".to_string(), filtered.join(":"));
+    }
+    // Derive CLI config paths from HOME or XDG_CONFIG_HOME if not explicitly set.
+    if !out.contains_key("GH_CONFIG_DIR") {
+        if let Some(xdg_config) = inherited.get("XDG_CONFIG_HOME") {
+            out.insert("GH_CONFIG_DIR".to_string(), format!("{}/gh", xdg_config));
+        } else if let Some(home) = inherited.get("HOME") {
+            out.insert("GH_CONFIG_DIR".to_string(), format!("{}/.config/gh", home));
+        }
+    }
+    if !out.contains_key("GIT_CONFIG_GLOBAL") {
+        if let Some(home) = inherited.get("HOME") {
+            out.insert("GIT_CONFIG_GLOBAL".to_string(), format!("{}/.gitconfig", home));
+        }
+    }
+    if !out.contains_key("CARGO_HOME") {
+        if let Some(home) = inherited.get("HOME") {
+            out.insert("CARGO_HOME".to_string(), format!("{}/.cargo", home));
+        }
+    }
+    if !out.contains_key("RUSTUP_HOME") {
+        if let Some(home) = inherited.get("HOME") {
+            out.insert("RUSTUP_HOME".to_string(), format!("{}/.rustup", home));
+        }
+    }
+    if !out.contains_key("BUN_INSTALL") {
+        if let Some(home) = inherited.get("HOME") {
+            out.insert("BUN_INSTALL".to_string(), format!("{}/.bun", home));
+        }
+    }
+    if !out.contains_key("NPM_CONFIG_USERCONFIG") {
+        if let Some(home) = inherited.get("HOME") {
+            out.insert("NPM_CONFIG_USERCONFIG".to_string(), format!("{}/.npmrc", home));
+        }
     }
     for (k, v) in build_isolation_env(spec, paths) {
         out.insert(k, v);

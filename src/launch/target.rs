@@ -94,7 +94,15 @@ pub(super) fn build_launch_env(
     iso_setup: Option<(&dyn IsolationRecipe, &isolation::IsolationPaths)>,
 ) -> HashMap<String, String> {
     let mut env = if let Some((iso, paths)) = iso_setup {
-        isolation::build_sanitized_isolation_env(inherited, iso, paths)
+        // spoof_home=false → RedirectOnly: inherit host env, credential-only strip.
+        // Host tooling (cargo/gh/ssh/mise) works natively — same as running runtime directly.
+        // spoof_home=true → SpoofHome: allowlist inherited env, full AI+config-path strip.
+        // Used by Claude and all harnesses (spoof_home always true for harness IsolationPlan).
+        if iso.spoof_home() {
+            isolation::build_sanitized_isolation_env(inherited, iso, paths)
+        } else {
+            isolation::build_redirect_only_env(inherited, iso, paths)
+        }
     } else {
         let mut env = inherited.clone();
         for var in isolation::GLOBAL_AI_STRIP {
