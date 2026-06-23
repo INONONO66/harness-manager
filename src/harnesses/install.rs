@@ -1,4 +1,3 @@
-use std::fs;
 use std::process::Command;
 
 use anyhow::{bail, Context};
@@ -8,12 +7,11 @@ use super::package::{
     build_install_cmd, build_uninstall_cmd_with_manager, build_update_cmd_with_manager,
 };
 use super::registry::HarnessRegistry;
+use super::state::{clear_package_state, read_package_manager, record_package_manager};
 use super::types::{HarnessSpec, PackageSpec};
 use crate::isolation::spec::IsolationRecipe;
 use crate::isolation::{self, IsolationLockGuard, IsolationPaths};
 use crate::runtimes::manifest::SharedStatePlan;
-
-const PACKAGE_MANAGER_STATE_FILE: &str = "package-manager";
 
 #[path = "install/git_worktree.rs"]
 mod git_worktree;
@@ -229,6 +227,8 @@ pub fn remove(registry: &HarnessRegistry, id: &str, purge: bool) -> anyhow::Resu
             eprintln!("Purging isolation directory: {}", paths.base.display());
         }
         isolation::purge_isolation_tree(&paths)?;
+    } else {
+        clear_package_state(&paths)?;
     }
 
     eprintln!(
@@ -239,31 +239,10 @@ pub fn remove(registry: &HarnessRegistry, id: &str, purge: bool) -> anyhow::Resu
     Ok(())
 }
 
-fn package_manager_state_path(paths: &IsolationPaths) -> std::path::PathBuf {
-    paths.state.join(PACKAGE_MANAGER_STATE_FILE)
-}
-
 fn command_program_name(cmd: &Command) -> Option<String> {
     std::path::Path::new(cmd.get_program())
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
-}
-
-fn record_package_manager(paths: &IsolationPaths, manager: &str) -> anyhow::Result<()> {
-    fs::create_dir_all(&paths.state)
-        .with_context(|| format!("create {}", paths.state.display()))?;
-    fs::write(package_manager_state_path(paths), format!("{manager}\n"))
-        .with_context(|| "record package manager")
-}
-
-fn read_package_manager(paths: &IsolationPaths) -> Option<String> {
-    let raw = fs::read_to_string(package_manager_state_path(paths)).ok()?;
-    let manager = raw.trim();
-    if manager.is_empty() {
-        None
-    } else {
-        Some(manager.to_string())
-    }
 }
 
 #[cfg(test)]

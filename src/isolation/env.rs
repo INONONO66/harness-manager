@@ -28,6 +28,24 @@ pub const GLOBAL_AI_STRIP: &[&str] = &[
     "XDG_STATE_HOME",
 ];
 
+// RedirectOnly: credential-only strip list (no config-path vars).
+// Used by build_redirect_only_env to strip AI API keys while preserving
+// host environment variables like HOME, CARGO_HOME, GITHUB_TOKEN, PATH.
+pub const REDIRECT_ONLY_CREDENTIAL_STRIP: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "CODEX_API_KEY",
+    "CODEX_ACCESS_TOKEN",
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
+    "GROQ_API_KEY",
+    "OPENAI_ORG_ID",
+    "OPENAI_PROJECT_ID",
+];
+
 const SAFE_INHERITED_ENV: &[&str] = &[
     "PATH",
     "LANG",
@@ -91,6 +109,25 @@ pub fn build_sanitized_isolation_env(
             .filter(|dir| !dir.contains("mise/shims") && !dir.contains("asdf/shims"))
             .collect();
         out.insert("PATH".to_string(), filtered.join(":"));
+    }
+    for (k, v) in build_isolation_env(spec, paths) {
+        out.insert(k, v);
+    }
+    out
+}
+
+// RedirectOnly: passes host env through like plain runtime usage.
+// Only AI credentials are stripped. GITHUB_TOKEN and other host secrets
+// are visible to the child process — same as running the runtime directly.
+// SpoofHome mode (build_sanitized_isolation_env) provides stronger isolation.
+pub fn build_redirect_only_env(
+    inherited: &HashMap<String, String>,
+    spec: &(impl IsolationRecipe + ?Sized),
+    paths: &IsolationPaths,
+) -> HashMap<String, String> {
+    let mut out = inherited.clone();
+    for var in REDIRECT_ONLY_CREDENTIAL_STRIP {
+        out.remove(*var);
     }
     for (k, v) in build_isolation_env(spec, paths) {
         out.insert(k, v);

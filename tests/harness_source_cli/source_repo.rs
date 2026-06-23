@@ -142,7 +142,7 @@ fn harness_custom_source_lifecycle_uses_manifest_argv_and_records_manager() {
         .output()
         .unwrap();
 
-    // Then: hm runs the manifest argv directly and records the selected manager.
+    // Then: hm runs the manifest argv directly and clears install state after removal.
     assert!(
         install.status.success(),
         "install stderr:\n{}",
@@ -162,9 +162,11 @@ fn harness_custom_source_lifecycle_uses_manifest_argv_and_records_manager() {
         fs::read_to_string(installer_log).unwrap(),
         "install\ndemo\nupgrade\ndemo\nremove\ndemo\n"
     );
-    assert_eq!(
-        fs::read_to_string(data.join("hm/runtimes/custom-demo/state/package-manager")).unwrap(),
-        "installer\n"
+    assert!(
+        !data
+            .join("hm/runtimes/custom-demo/state/package-manager")
+            .exists(),
+        "remove must clear package-manager state so wrapper harnesses stop reporting Installed"
     );
 }
 

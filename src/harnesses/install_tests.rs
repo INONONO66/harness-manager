@@ -1,14 +1,12 @@
 use std::process::Command;
 
-use super::{
-    apply_isolation_env, apply_npm_isolated_env, install, read_package_manager,
-    record_package_manager,
-};
+use super::{apply_isolation_env, apply_npm_isolated_env, install};
 use crate::harnesses::manifest::PackageCommandTemplate;
 use crate::harnesses::package::{
     build_install_cmd, build_uninstall_cmd_with_manager, build_update_cmd_with_manager,
 };
 use crate::harnesses::registry::{HarnessRegistry, HarnessSource};
+use crate::harnesses::state::{read_package_manager, record_package_manager};
 use crate::harnesses::types::PackageSpec;
 
 #[path = "install_tests/npm_isolated.rs"]

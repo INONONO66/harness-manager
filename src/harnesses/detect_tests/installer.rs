@@ -196,6 +196,7 @@ fn detect_one_custom_backend_uses_declared_bin_subdir() {
     let binary = bin_dir.join("custom-tool");
     std::fs::create_dir_all(&bin_dir).expect("seed custom bin dir");
     std::fs::write(&binary, "#!/bin/sh\n").expect("seed custom binary");
+    crate::harnesses::state::record_package_manager(&paths, "installer").unwrap();
 
     let spec = HarnessSpec {
         id: "custom-tool".to_string(),
@@ -222,6 +223,114 @@ fn detect_one_custom_backend_uses_declared_bin_subdir() {
     assert!(result.installed);
     assert_eq!(result.binary_path, Some(binary));
 
+    let _ = std::fs::remove_dir_all(&paths.base);
+}
+
+#[test]
+fn detect_one_custom_wrapper_is_not_installed_from_runtime_binary_alone() {
+    let subdir = unique_subdir("custom-wrapper-no-state");
+    let isolation = empty_iso(&subdir);
+
+    let spec = HarnessSpec {
+        id: "custom-wrapper".to_string(),
+        aliases: Vec::new(),
+        display_name: "custom-wrapper".to_string(),
+        target_runtime: "shell".to_string(),
+        target_runtime_shared_state: None,
+        package: PackageSpec::Custom {
+            install: PackageCommandTemplate {
+                argv: vec!["installer".to_string(), "install".to_string()],
+            },
+            update: None,
+            uninstall: None,
+            bin_subdir: None,
+            self_update: None,
+        },
+        detect_binaries: vec!["sh".to_string()],
+        isolation: isolation.clone(),
+        launch_binary: Some("sh".to_string()),
+        launch_args: Vec::new(),
+    };
+    let result = detect_one(&spec);
+
+    assert!(
+        !result.installed,
+        "Custom wrapper without package state must NOT report installed from a target runtime binary on PATH"
+    );
+    assert!(result.binary_path.is_none());
+
+    let paths = crate::isolation::IsolationPaths::try_from_spec(&isolation).unwrap();
+    let _ = std::fs::remove_dir_all(&paths.base);
+}
+
+#[test]
+fn detect_one_custom_wrapper_installed_when_package_state_exists() {
+    let subdir = unique_subdir("custom-wrapper-state");
+    let isolation = empty_iso(&subdir);
+    let paths = crate::isolation::IsolationPaths::try_from_spec(&isolation).unwrap();
+    crate::harnesses::state::record_package_manager(&paths, "installer").unwrap();
+
+    let spec = HarnessSpec {
+        id: "custom-wrapper".to_string(),
+        aliases: Vec::new(),
+        display_name: "custom-wrapper".to_string(),
+        target_runtime: "shell".to_string(),
+        target_runtime_shared_state: None,
+        package: PackageSpec::Custom {
+            install: PackageCommandTemplate {
+                argv: vec!["installer".to_string(), "install".to_string()],
+            },
+            update: None,
+            uninstall: None,
+            bin_subdir: None,
+            self_update: None,
+        },
+        detect_binaries: vec!["sh".to_string()],
+        isolation,
+        launch_binary: Some("sh".to_string()),
+        launch_args: Vec::new(),
+    };
+    let result = detect_one(&spec);
+
+    assert!(result.installed);
+    assert!(result.binary_path.is_some());
+
+    let _ = std::fs::remove_dir_all(&paths.base);
+}
+
+#[test]
+fn detect_one_git_worktree_wrapper_is_not_installed_from_runtime_binary_alone() {
+    let subdir = unique_subdir("git-wrapper-no-state");
+    let isolation = empty_iso(&subdir);
+
+    let spec = HarnessSpec {
+        id: "git-wrapper".to_string(),
+        aliases: Vec::new(),
+        display_name: "git-wrapper".to_string(),
+        target_runtime: "shell".to_string(),
+        target_runtime_shared_state: None,
+        package: PackageSpec::GitWorktree {
+            repository: "https://github.com/example/demo".to_string(),
+            setup: PackageCommandTemplate {
+                argv: vec!["setup".to_string()],
+            },
+            update: None,
+            self_update: None,
+        },
+        detect_binaries: vec!["sh".to_string()],
+        isolation: isolation.clone(),
+        launch_binary: Some("sh".to_string()),
+        launch_args: Vec::new(),
+    };
+    let result = detect_one(&spec);
+
+    assert!(
+        !result.installed,
+        "Git worktree wrapper without package state must NOT report installed from a target runtime binary on PATH"
+    );
+    assert!(result.binary_path.is_none());
+
+    let paths = crate::isolation::IsolationPaths::try_from_spec(&isolation).unwrap();
     let _ = std::fs::remove_dir_all(&paths.base);
 }
 

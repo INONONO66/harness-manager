@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, Color, Table};
 
 use super::registry::HarnessRegistry;
+use super::state::has_package_state;
 use super::types::{HarnessSpec, PackageSpec};
 use crate::isolation::IsolationPaths;
 
@@ -21,10 +22,20 @@ pub struct DetectedHarness {
 pub fn detect_one(spec: &HarnessSpec) -> DetectedHarness {
     let binary_names: Vec<&str> = spec.detect_binaries.iter().map(String::as_str).collect();
     let binary = match &spec.package {
+        PackageSpec::Custom {
+            bin_subdir: Some(subdir),
+            ..
+        } => detect_in_isolation_home(spec, subdir).filter(|_| package_state_exists(spec)),
+        PackageSpec::Custom { .. } | PackageSpec::GitWorktree { .. } => {
+            if package_state_exists(spec) {
+                crate::runtimes::find_binary(&binary_names)
+            } else {
+                None
+            }
+        }
         package if package.bin_subdir().is_some() => package
             .bin_subdir()
-            .and_then(|subdir| detect_in_isolation_home(spec, subdir))
-            .or_else(|| crate::runtimes::find_binary(&binary_names)),
+            .and_then(|subdir| detect_in_isolation_home(spec, subdir)),
         PackageSpec::NpxInstaller { .. } | PackageSpec::BunxInstaller { .. } => {
             let cache_hit = IsolationPaths::try_from_spec(&spec.isolation)
                 .ok()
@@ -46,6 +57,12 @@ pub fn detect_one(spec: &HarnessSpec) -> DetectedHarness {
             PackageSpec::NpxInstaller { .. } | PackageSpec::BunxInstaller { .. }
         ),
     }
+}
+
+pub fn package_state_exists(spec: &HarnessSpec) -> bool {
+    IsolationPaths::try_from_spec(&spec.isolation)
+        .ok()
+        .is_some_and(|paths| has_package_state(&paths))
 }
 
 fn package_cache_installed_at(home: &Path, package: &PackageSpec) -> Option<PathBuf> {

@@ -7,7 +7,9 @@ use super::effective_profile_name;
 use super::profile::{apply_profile, apply_proxy_env};
 use super::target::{build_launch_env, resolve_target, runtime_isolation_plan, LaunchTarget};
 use crate::config;
+use crate::harnesses::detect::package_state_exists;
 use crate::harnesses::registry::HarnessRegistry;
+use crate::harnesses::types::{HarnessSpec, PackageSpec};
 use crate::isolation;
 use crate::isolation::spec::{IsolationPlan, IsolationRecipe};
 use crate::runtimes::registry::RuntimeRegistry;
@@ -134,6 +136,7 @@ fn select_target<'a>(
             if allow_keychain {
                 bail!("--allow-keychain is not supported for harness launches");
             }
+            ensure_package_managed_harness_installed(harness)?;
             let binary_names = match &harness.launch_binary {
                 Some(bin) => vec![bin.clone()],
                 None => runtime.binary_names.clone(),
@@ -148,6 +151,21 @@ fn select_target<'a>(
             })
         }
     }
+}
+
+fn ensure_package_managed_harness_installed(harness: &HarnessSpec) -> anyhow::Result<()> {
+    if matches!(
+        harness.package,
+        PackageSpec::Custom { .. } | PackageSpec::GitWorktree { .. }
+    ) && !package_state_exists(harness)
+    {
+        bail!(
+            "harness '{}' is not installed. Run `hm harness install {}` first.",
+            harness.id,
+            harness.id
+        );
+    }
+    Ok(())
 }
 
 fn resolve_profile_before_isolation(

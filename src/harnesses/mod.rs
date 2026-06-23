@@ -5,6 +5,7 @@ pub mod manifest;
 mod package;
 pub mod registry;
 pub mod source;
+pub mod state;
 pub mod types;
 
 pub fn load_registry(

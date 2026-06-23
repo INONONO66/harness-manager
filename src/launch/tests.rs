@@ -143,6 +143,7 @@ fn isolated_launch_env_uses_allowlist_and_strips_arbitrary_host_secrets() {
     };
     let inherited = HashMap::from([
         ("PATH".to_string(), "/bin".to_string()),
+        ("HOME".to_string(), "/Users/tester".to_string()),
         ("OPENAI_API_KEY".to_string(), "openai".to_string()),
         ("GITHUB_TOKEN".to_string(), "github".to_string()),
         ("NPM_TOKEN".to_string(), "npm".to_string()),
@@ -162,9 +163,36 @@ fn isolated_launch_env_uses_allowlist_and_strips_arbitrary_host_secrets() {
     assert!(!env.contains_key("OPENAI_API_KEY"));
     assert!(!env.contains_key("GITHUB_TOKEN"));
     assert!(!env.contains_key("NPM_TOKEN"));
-    assert!(!env.contains_key("SSH_AUTH_SOCK"));
     assert!(!env.contains_key("GOOGLE_GENERATIVE_AI_API_KEY"));
     assert!(!env.contains_key("OPENROUTER_API_KEY"));
+    assert_eq!(
+        env.get("GH_CONFIG_DIR").map(String::as_str),
+        Some("/Users/tester/.config/gh")
+    );
+    assert_eq!(
+        env.get("GIT_CONFIG_GLOBAL").map(String::as_str),
+        Some("/Users/tester/.gitconfig")
+    );
+    assert_eq!(
+        env.get("SSH_AUTH_SOCK").map(String::as_str),
+        Some("/tmp/agent.sock")
+    );
+    assert_eq!(
+        env.get("CARGO_HOME").map(String::as_str),
+        Some("/Users/tester/.cargo")
+    );
+    assert_eq!(
+        env.get("RUSTUP_HOME").map(String::as_str),
+        Some("/Users/tester/.rustup")
+    );
+    assert_eq!(
+        env.get("BUN_INSTALL").map(String::as_str),
+        Some("/Users/tester/.bun")
+    );
+    assert_eq!(
+        env.get("NPM_CONFIG_USERCONFIG").map(String::as_str),
+        Some("/Users/tester/.npmrc")
+    );
 }
 
 #[test]
