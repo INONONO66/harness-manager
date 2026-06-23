@@ -13,13 +13,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &out_dir.join("builtin_manifest_index.rs"),
     )?;
 
-    write_manifest_index(
-        &manifest_root,
-        &manifest_root.join("runtimes").join("builtin"),
-        "BUILTIN_RUNTIME_MANIFESTS",
-        &out_dir.join("builtin_runtime_manifest_index.rs"),
-    )?;
-
     Ok(())
 }
 

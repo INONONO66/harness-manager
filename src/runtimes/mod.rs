@@ -1,5 +1,4 @@
 pub mod auth;
-pub mod builtin;
 pub mod defs;
 pub mod manifest;
 pub mod registry;

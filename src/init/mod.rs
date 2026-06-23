@@ -8,7 +8,6 @@ use crate::harnesses::builtin::BUILTIN_MANIFESTS;
 use crate::harnesses::install;
 use crate::harnesses::manifest::ManifestPackageSpec;
 use crate::harnesses::registry::HarnessRegistry;
-use crate::runtimes::builtin::BUILTIN_RUNTIME_MANIFESTS;
 use crate::runtimes::registry::RuntimeRegistry;
 
 pub fn run_init(force: bool, install_harnesses: bool) -> Result<()> {
@@ -18,16 +17,6 @@ pub fn run_init(force: bool, install_harnesses: bool) -> Result<()> {
         .with_context(|| format!("create {}", runtimes_dir.display()))?;
     fs::create_dir_all(&harnesses_dir)
         .with_context(|| format!("create {}", harnesses_dir.display()))?;
-
-    println!(
-        "{} {} runtime manifests into {}",
-        "Init".green().bold(),
-        if force { "force-writing" } else { "writing" },
-        runtimes_dir.display()
-    );
-    let runtime_summary =
-        extract_manifests(BUILTIN_RUNTIME_MANIFESTS, &runtimes_dir, force, "runtimes")?;
-    runtime_summary.report();
 
     println!(
         "\n{} {} harness manifests into {}",
