@@ -292,15 +292,9 @@ After that one-time setup, publishing a GitHub tag runs `.github/workflows/relea
 
 ## Runtime Support
 
-Runtimes are declarative TOML manifests, not Rust statics. Built-ins live in `runtimes/builtin/*.toml` and are compiled into the binary; users drop additional manifests under:
+Runtimes are native Rust definitions in `src/runtimes/defs/` — one file per runtime, each a `pub fn record() -> RuntimeRecord`, aggregated by `defs::all()`. There is no runtime TOML manifest layer and no user/plugin runtime discovery; adding or changing a runtime is a code change. (Harnesses are still declarative TOML — see Harnesses above.)
 
-```text
-$XDG_CONFIG_HOME/hm/runtimes.d/*.toml
-$XDG_DATA_HOME/hm/runtimes.d/*.toml
-$XDG_DATA_HOME/hm/plugins/*/runtime.toml
-```
-
-Each manifest declares one of three injection strategies. `hm` validates the full registry before any side effect. User runtime manifests with the same normalized binary name or display name as a builtin override the builtin (with a `note:` on stderr unless the file is byte-identical to the embedded copy). A single user manifest that would shadow MULTIPLE builtins fails closed, and two user manifests sharing a route also fail closed.
+Each runtime declares one of three injection strategies (the `InjectionRecord` enum — the only strategies in core) plus a containment mode (`IsolationPlan.spoof_home`).
 
 | Runtime | Detection | Auth | Strategy | Injection |
 |---|---|---|---|---|
@@ -311,11 +305,18 @@ Each manifest declares one of three injection strategies. `hm` validates the ful
 | OpenCode | `opencode` binary + `~/.config/opencode/` | Provider auth + env | `provider-config-seed` | seeds `~/.config/opencode/opencode.json` `provider.<id>.options.{baseURL,apiKey,headers}` for every gateway provider; falls back to `[profiles.X.llm]` as single-provider `openai` seed |
 | Pi | `pi` binary + `~/.pi/agent/` | Token file | `provider-config-seed` | seeds `~/.pi/agent/models.json` `providers.<id>.{baseUrl,apiKey,headers}` for every gateway provider |
 
-The three strategies are the only ones in core. Per-runtime knowledge lives in the manifest. Picker tree:
+The three strategies are the only ones in core. Per-runtime knowledge lives in the runtime's `defs/<name>.rs` record. Picker tree:
 
 - Endpoint goes in an env var, single provider per runtime → `env`
 - Config file holds repeated provider sub-trees keyed by provider name → `provider-config-seed`
 - Config file holds top-level keys (no per-provider table) AND auth comes from an env var → `codex-config-seed`
+
+### Isolation: RedirectOnly vs SpoofHome
+
+Each runtime declares a containment mode via `IsolationPlan.spoof_home`, dispatched in `launch::build_launch_env` on `iso.spoof_home()`:
+
+- **RedirectOnly** (`spoof_home = false` — codex, opencode, pi, gajae-code, grok): `HOME` stays the host's. Only the runtime's own state dir is redirected into the hm tree via its native env var (`CODEX_HOME`, `PI_CODING_AGENT_DIR`, `OPENCODE_CONFIG_DIR`, …). The child inherits the full host environment minus AI API keys, so host tooling — `gh`, `cargo`, `ssh`, mise/asdf — works exactly as it does outside hm. Containment still holds because the runtime writes its own config/sessions/auth under the redirected dir.
+- **SpoofHome** (`spoof_home = true` — Claude and all harnesses): `HOME` is spoofed to an isolated tree and the child env is reduced to a safe allowlist with host secrets stripped. Used when a runtime ignores its own redirect env (Claude's `CLAUDE_CONFIG_DIR`) or when full isolation is wanted.
 
 ### Injection strategy 1: `env` (single-provider runtimes)
 
@@ -379,7 +380,7 @@ endpoint_strip_v1 = false
 
 `hm use codex --profile proxy` writes two top-level keys to the TOML config (via `toml_edit::DocumentMut`, preserving comments and existing keys from `[isolation.seed_files]`), then strips `strip_envs` from the launch env and sets `api_key_env` to the resolved bearer. The bearer NEVER reaches the file — only the env var. This strategy is single-provider only: the gateway must route the configured `provider` (or the legacy `[profiles.X.llm]` fallback is used).
 
-Adding a new runtime requires only a TOML file. No Rust change.
+Adding a new runtime is a Rust file under `src/runtimes/defs/` plus one line in `defs::all()` — no TOML, no codegen. The field shapes shown above as TOML now live as fields on the `InjectionRecord` variants of each runtime's `record()`.
 
 ### Security
 
@@ -397,11 +398,11 @@ Adding a new runtime requires only a TOML file. No Rust change.
 src/
   main.rs              CLI routing
   cli/mod.rs           clap command definitions
-  runtimes/            runtime TOML manifest parser, registry, sandboxed detection
-    builtin.rs           built-in manifest index (codegen from build.rs)
-    manifest.rs          owned types + validation + parse_toml
-    registry/dynamic.rs  RuntimeRegistry::load (builtins + user/plugin discovery)
-    auth.rs              per-variant auth probe dispatch
+  runtimes/            native runtime definitions, registry, sandboxed detection
+    defs/                one Rust record() per runtime + all() (claude, codex, ...)
+    manifest/records.rs  owned RuntimeRecord domain types
+    registry/dynamic.rs  RuntimeRegistry::load (from defs::all())
+    auth/                per-variant auth probe dispatch
   harnesses/           harness manifest parser, registry, package commands, install flow
   isolation/           isolated env, seed files, path safety, locks
   config/              profile config parsing + gateway schema + secret references
@@ -411,7 +412,7 @@ src/
     mod.rs               run_use and exec
   inject/mod.rs        hm inject plan dry-run (calls validate_provider_config_seed)
 
-runtimes/builtin/      bundled runtime TOML manifests (claude, codex, gajae-code, grok, opencode, pi)
+src/runtimes/defs/     native runtime records (claude, codex, gajae-code, grok, opencode, pi)
 harnesses/builtin/     bundled harness TOML manifests
 docs/                  manifest authoring guide
 ```
