@@ -38,7 +38,6 @@ kind = "npm-global"
 package = "{id}-package"
 
 [isolation]
-spoof_home = true
 home_subdirs = [".codex"]
 
 [isolation.static_envs]

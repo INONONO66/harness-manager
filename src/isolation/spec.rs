@@ -11,7 +11,6 @@ pub trait IsolationRecipe {
     fn runtime_subdir(&self) -> &str {
         self.subdir()
     }
-    fn spoof_home(&self) -> bool;
     fn home_subdirs(&self) -> Vec<&str>;
     fn static_envs(&self) -> Vec<(&str, &str)>;
     fn seed_files(&self) -> Vec<SeedFileView<'_>>;
@@ -22,7 +21,6 @@ pub trait IsolationRecipe {
 pub struct IsolationPlan {
     pub subdir: String,
     pub runtime_subdir: String,
-    pub spoof_home: bool,
     pub home_subdirs: Vec<String>,
     pub static_envs: Vec<(String, String)>,
     pub seed_files: Vec<SeedFilePlan>,
@@ -44,10 +42,6 @@ impl IsolationRecipe for IsolationPlan {
 
     fn runtime_subdir(&self) -> &str {
         &self.runtime_subdir
-    }
-
-    fn spoof_home(&self) -> bool {
-        self.spoof_home
     }
 
     fn home_subdirs(&self) -> Vec<&str> {

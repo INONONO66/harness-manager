@@ -311,7 +311,6 @@ endpoint_strip_v1 = true
 
 [isolation]
 subdir = "custom-agent"
-spoof_home = true
 home_subdirs = [".custom-agent"]
 
 [isolation.static_envs]

@@ -12,7 +12,6 @@ self_update = "suppressed-by-env"
 
 [isolation]
 subdir = "omx"
-spoof_home = true
 home_subdirs = [".omx"]
 caveat = "omx harness: Codex CLI with oh-my-codex. Run `omx setup` after first launch if needed."
 

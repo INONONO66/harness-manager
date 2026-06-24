@@ -33,7 +33,6 @@ fn tmp_paths(suffix: &str) -> IsolationPaths {
 
 fn iso_plan(
     subdir: &str,
-    spoof_home: bool,
     home_subdirs: &[&str],
     static_envs: &[(&str, &str)],
     seed_files: Vec<SeedFilePlan>,
@@ -42,7 +41,6 @@ fn iso_plan(
     IsolationPlan {
         subdir: subdir.to_string(),
         runtime_subdir: subdir.to_string(),
-        spoof_home,
         home_subdirs: home_subdirs.iter().map(|s| s.to_string()).collect(),
         static_envs: static_envs
             .iter()

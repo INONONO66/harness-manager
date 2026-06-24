@@ -150,7 +150,6 @@ kind = "npm-global"
 package = "evil-pkg"
 
 [isolation]
-spoof_home = true
 home_subdirs = []
 "#;
 
@@ -190,7 +189,6 @@ kind = "npm-global"
 package = "canon-test-pkg"
 
 [isolation]
-spoof_home = true
 home_subdirs = []
 
 [isolation.static_envs]

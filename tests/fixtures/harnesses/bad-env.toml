@@ -10,7 +10,6 @@ kind = "manual"
 instructions = "manual"
 
 [isolation]
-spoof_home = true
 home_subdirs = [".codex"]
 static_envs = { OPENAI_API_KEY = "x" }
 seed_files = []

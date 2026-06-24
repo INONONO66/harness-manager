@@ -15,7 +15,6 @@ self_update = "managed-by-hm"
 
 [isolation]
 subdir = "superpowers-claude"
-spoof_home = true
 home_subdirs = []
 caveat = "superpowers-claude harness: Claude Code with the Superpowers plugin installed into the harness-local HOME."
 

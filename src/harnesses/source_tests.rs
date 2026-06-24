@@ -21,7 +21,6 @@ kind = "manual"
 instructions = "demo only"
 
 [isolation]
-spoof_home = true
 home_subdirs = []
 static_envs = {{ CODEX_HOME = "{{home}}/.codex" }}
 "#

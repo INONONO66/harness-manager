@@ -71,7 +71,6 @@ $package_block
 
 [isolation]
 subdir = "$id"
-spoof_home = true
 home_subdirs = []
 static_envs = { CODEX_HOME = "{runtime_home}/.codex", DEMO_STATE = "{state}/$id", DEMO_LOGS = "{runtime_logs}" }
 

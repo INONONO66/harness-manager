@@ -15,7 +15,6 @@ self_update = "managed-by-hm"
 
 [isolation]
 subdir = "superpowers"
-spoof_home = true
 home_subdirs = []
 caveat = "superpowers harness: Codex CLI with the Superpowers plugin installed into the harness-local CODEX_HOME."
 

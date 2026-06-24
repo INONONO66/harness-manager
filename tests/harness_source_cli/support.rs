@@ -17,7 +17,6 @@ kind = "npm-global"
 package = "demo-package"
 
 [isolation]
-spoof_home = true
 home_subdirs = []
 static_envs = {{ CODEX_HOME = "{{home}}/.codex" }}
 "#

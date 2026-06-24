@@ -53,10 +53,10 @@ pub fn record() -> RuntimeRecord {
             overwrite: false,
             endpoint_strip_v1: false,
         })),
+        spoof_home: false,
         isolation: Some(IsolationPlan {
             subdir: "codex".to_string(),
             runtime_subdir: "codex".to_string(),
-            spoof_home: false,
             home_subdirs: vec![".codex".to_string()],
             static_envs: vec![("CODEX_HOME".to_string(), "{home}/.codex".to_string())],
             seed_files: vec![SeedFilePlan {

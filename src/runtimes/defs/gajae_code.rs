@@ -95,10 +95,10 @@ pub fn record() -> RuntimeRecord {
                 legacy_provider: Some("openai".to_string()),
             },
         )),
+        spoof_home: false,
         isolation: Some(IsolationPlan {
             subdir: "gajae-code".to_string(),
             runtime_subdir: "gajae-code".to_string(),
-            spoof_home: false,
             home_subdirs: vec![".gjc".to_string(), ".cache/gajae-code".to_string()],
             static_envs: vec![
                 ("GJC_CODING_AGENT_DIR".to_string(), "{home}/.gjc/agent".to_string()),

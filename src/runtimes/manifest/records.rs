@@ -12,6 +12,8 @@ pub struct RuntimeRecord {
     pub auth_probes: Vec<AuthProbeRecord>,
     pub auth_login: AuthLoginRecord,
     pub injection: Option<InjectionRecord>,
+    /// HOME-spoof backstop for runtimes that ignore their config-redirect env (only Claude). Everything else is RedirectOnly. Harnesses inherit this from their target runtime.
+    pub spoof_home: bool,
     pub isolation: Option<IsolationPlan>,
     pub keychain_isolation: Option<IsolationPlan>,
     pub shared_state: Option<SharedStatePlan>,

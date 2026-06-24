@@ -53,10 +53,10 @@ pub fn record() -> RuntimeRecord {
             ],
             endpoint_strip_v1: true,
         })),
+        spoof_home: true,
         isolation: Some(IsolationPlan {
             subdir: "claude".to_string(),
             runtime_subdir: "claude".to_string(),
-            spoof_home: true,
             home_subdirs: vec![".claude".to_string()],
             static_envs: [
                 ("CLAUDE_CONFIG_DIR", "{home}/.claude"),
@@ -105,7 +105,6 @@ exec hm secret get claude-api-key
         keychain_isolation: Some(IsolationPlan {
             subdir: "claude-keychain".to_string(),
             runtime_subdir: "claude-keychain".to_string(),
-            spoof_home: true,
             home_subdirs: vec![".claude".to_string()],
             // Same as `isolation` static_envs EXCEPT no DISABLE_LOGIN_COMMAND,
             // so `/login` works for OAuth in --allow-keychain mode.

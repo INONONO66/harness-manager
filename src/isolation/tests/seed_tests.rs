@@ -10,7 +10,6 @@ fn ensure_tree_creates_home_subdirs() {
     let _ = fs::remove_dir_all(&p.base);
     let spec = iso_plan(
         "test",
-        true,
         &[".codex", ".config/opencode"],
         &[],
         Vec::new(),
@@ -33,7 +32,6 @@ fn seed_files_writes_substituted_content_create_if_missing() {
     fs::create_dir_all(&p.home).unwrap();
     let spec = iso_plan(
         "test",
-        true,
         &[],
         &[],
         vec![seed(
@@ -68,7 +66,6 @@ fn seed_files_can_overwrite_and_chmod() {
     fs::create_dir_all(&p.state).unwrap();
     let spec = iso_plan(
         "test",
-        true,
         &[],
         &[],
         vec![seed(
@@ -112,7 +109,6 @@ fn seed_files_rejects_parent_dir_escape() {
     fs::create_dir_all(&p.home).unwrap();
     let spec = iso_plan(
         "test",
-        true,
         &[],
         &[],
         vec![seed(
@@ -141,7 +137,6 @@ fn seed_files_rejects_existing_seed_symlink() {
     std::os::unix::fs::symlink(&outside, &target).unwrap();
     let spec = iso_plan(
         "test",
-        true,
         &[],
         &[],
         vec![seed(
@@ -176,7 +171,6 @@ fn seed_files_rejects_symlinked_target() {
     symlink(&outside_target, p.state.join("apikey.sh")).unwrap();
     let spec = iso_plan(
         "test",
-        true,
         &[],
         &[],
         vec![seed("{state}/apikey.sh", "inside\n", true, Some(0o700))],

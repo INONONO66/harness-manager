@@ -47,10 +47,10 @@ pub fn record() -> RuntimeRecord {
             ],
             endpoint_strip_v1: false,
         })),
+        spoof_home: false,
         isolation: Some(IsolationPlan {
             subdir: "grok".to_string(),
             runtime_subdir: "grok".to_string(),
-            spoof_home: false,
             home_subdirs: vec![".grok".to_string()],
             static_envs: vec![],
             seed_files: vec![],

@@ -70,7 +70,7 @@ fn opencode_nested_db_files_link_to_main_runtime_home() {
     fs::write(&source_db, "db").unwrap();
     fs::write(&source_wal, "wal").unwrap();
     fs::write(source_dir.join("notes.txt"), "not a database").unwrap();
-    let spec = iso_plan("omo", true, &[], &[], Vec::new(), None);
+    let spec = iso_plan("omo", &[], &[], Vec::new(), None);
 
     // When: the harness isolation tree is prepared for an OpenCode harness.
     ensure_isolation_tree(&spec, &paths).unwrap();
@@ -116,7 +116,7 @@ fn database_link_does_not_traverse_symlinked_main_runtime_dirs() {
     let source_dir = main_home.join(".local/share/opencode");
     fs::create_dir_all(&source_dir).unwrap();
     std::os::unix::fs::symlink(&external_dir, source_dir.join("linked-out")).unwrap();
-    let spec = iso_plan("omo", true, &[], &[], Vec::new(), None);
+    let spec = iso_plan("omo", &[], &[], Vec::new(), None);
 
     // When: the harness isolation tree links OpenCode DB files.
     ensure_isolation_tree(&spec, &paths).unwrap();
@@ -152,7 +152,7 @@ fn database_link_rejects_existing_harness_local_db() {
     let source_dir = main_home.join(".codex/sessions");
     fs::create_dir_all(&source_dir).unwrap();
     fs::write(source_dir.join("events.sqlite"), "main").unwrap();
-    let spec = iso_plan("omx", true, &[".codex"], &[], Vec::new(), None);
+    let spec = iso_plan("omx", &[".codex"], &[], Vec::new(), None);
     ensure_isolation_tree(&spec, &paths).unwrap();
     let local_db = paths.home.join(".codex/sessions/events.sqlite");
     fs::create_dir_all(local_db.parent().unwrap()).unwrap();
@@ -193,7 +193,7 @@ fn allowlisted_auth_files_link_to_main_runtime_home() {
         let source = main_home.join(auth_relative);
         fs::create_dir_all(source.parent().unwrap()).unwrap();
         fs::write(&source, "token").unwrap();
-        let spec = iso_plan(case_name, true, &[], &[], Vec::new(), None);
+        let spec = iso_plan(case_name, &[], &[], Vec::new(), None);
 
         ensure_isolation_tree(&spec, &paths).unwrap();
         let plan = shared_state(&[], &[auth_relative]);
@@ -222,14 +222,7 @@ fn auth_files_are_not_shared_when_launch_uses_profile_credentials() {
     fs::create_dir_all(&source_db_dir).unwrap();
     fs::write(&source_auth, "token").unwrap();
     fs::write(&source_db, "db").unwrap();
-    let spec = iso_plan(
-        "profile-seeded-auth",
-        true,
-        &[".codex"],
-        &[],
-        Vec::new(),
-        None,
-    );
+    let spec = iso_plan("profile-seeded-auth", &[".codex"], &[], Vec::new(), None);
 
     ensure_isolation_tree(&spec, &paths).unwrap();
     let plan = shared_state(&[".codex"], &[".codex/auth.json"]);
@@ -260,7 +253,7 @@ fn auth_link_rejects_existing_harness_local_auth_file() {
     let source = main_home.join(".codex/auth.json");
     fs::create_dir_all(source.parent().unwrap()).unwrap();
     fs::write(&source, "main").unwrap();
-    let spec = iso_plan("omx-auth", true, &[".codex"], &[], Vec::new(), None);
+    let spec = iso_plan("omx-auth", &[".codex"], &[], Vec::new(), None);
     ensure_isolation_tree(&spec, &paths).unwrap();
     let local_auth = paths.home.join(".codex/auth.json");
     fs::write(&local_auth, "local").unwrap();
@@ -303,7 +296,7 @@ fn manifest_declared_shared_state_links_auth_and_database_files() {
         session_file_globs: Vec::new(),
         auth_files: vec![".custom/auth/token.json".to_string()],
     };
-    let spec = iso_plan("custom-shared", true, &[], &[], Vec::new(), None);
+    let spec = iso_plan("custom-shared", &[], &[], Vec::new(), None);
 
     ensure_isolation_tree(&spec, &paths).unwrap();
     prepare_shared_state_from_home(&plan, &paths, &main_home, true).unwrap();
@@ -343,7 +336,7 @@ fn session_only_sharing_links_session_dirs_and_files_into_isolated_home() {
     fs::write(source_archive_dir.join("rollout-old.jsonl"), "archived").unwrap();
     fs::write(&source_history, "history").unwrap();
     fs::write(&source_config, "config must not link").unwrap();
-    let spec = iso_plan("session-only-sharing", true, &[], &[], Vec::new(), None);
+    let spec = iso_plan("session-only-sharing", &[], &[], Vec::new(), None);
 
     // When: session-only shared state is prepared.
     ensure_isolation_tree(&spec, &paths).unwrap();
@@ -395,7 +388,7 @@ fn session_sharing_replaces_empty_isolated_session_stub() {
     let source_session = source_session_dir.join("ses_123.json");
     fs::write(&source_session, "{}").unwrap();
 
-    ensure_isolation_tree(&iso_plan("omo", true, &[], &[], Vec::new(), None), &paths).unwrap();
+    ensure_isolation_tree(&iso_plan("omo", &[], &[], Vec::new(), None), &paths).unwrap();
     let local_session = paths
         .home
         .join(".local/share/opencode/storage/session_diff/ses_123.json");
@@ -445,11 +438,7 @@ fn session_sharing_migrates_existing_isolated_session_state_before_linking() {
     .unwrap();
     fs::write(&source_history, "host-history\n").unwrap();
 
-    ensure_isolation_tree(
-        &iso_plan("lazycodex", true, &[], &[], Vec::new(), None),
-        &paths,
-    )
-    .unwrap();
+    ensure_isolation_tree(&iso_plan("lazycodex", &[], &[], Vec::new(), None), &paths).unwrap();
     let local_sessions = paths.home.join(".codex/sessions");
     let local_history = paths.home.join(".codex/history.jsonl");
     fs::create_dir_all(local_sessions.join("2026/06/22")).unwrap();
@@ -512,7 +501,7 @@ fn shared_state_wildcards_link_session_dbs_without_sharing_config() {
     fs::write(&source_wal, "wal").unwrap();
     fs::write(&source_project_db, "project-db").unwrap();
     fs::write(data_dir.join("opencode.json"), "config must not link").unwrap();
-    let spec = iso_plan("omo", true, &[], &[], Vec::new(), None);
+    let spec = iso_plan("omo", &[], &[], Vec::new(), None);
 
     // When: wildcard session shared state is prepared.
     ensure_isolation_tree(&spec, &paths).unwrap();
@@ -562,7 +551,7 @@ fn session_sharing_rejects_symlinked_source_root() {
     fs::create_dir_all(&external_sessions).unwrap();
     fs::write(external_sessions.join("rollout.jsonl"), "escaped").unwrap();
     std::os::unix::fs::symlink(&external_sessions, main_home.join(".codex/sessions")).unwrap();
-    let spec = iso_plan("omx", true, &[], &[], Vec::new(), None);
+    let spec = iso_plan("omx", &[], &[], Vec::new(), None);
 
     // When: shared session state preparation reaches the symlinked source root.
     ensure_isolation_tree(&spec, &paths).unwrap();
@@ -598,7 +587,7 @@ fn session_globs_reject_symlinked_fixed_prefix() {
     )
     .unwrap();
     std::os::unix::fs::symlink(&external_share, main_home.join(".local/share/opencode")).unwrap();
-    let spec = iso_plan("omo", true, &[], &[], Vec::new(), None);
+    let spec = iso_plan("omo", &[], &[], Vec::new(), None);
 
     // When: wildcard session sharing reaches the symlinked fixed prefix.
     ensure_isolation_tree(&spec, &paths).unwrap();
@@ -635,7 +624,7 @@ fn session_globs_reject_symlinked_matched_directory() {
     fs::create_dir_all(&external_storage).unwrap();
     fs::write(external_storage.join("session.db"), "escaped").unwrap();
     std::os::unix::fs::symlink(&external_storage, project_dir.join("storage")).unwrap();
-    let spec = iso_plan("omo", true, &[], &[], Vec::new(), None);
+    let spec = iso_plan("omo", &[], &[], Vec::new(), None);
 
     // When: wildcard session sharing reaches the symlinked matched directory.
     ensure_isolation_tree(&spec, &paths).unwrap();

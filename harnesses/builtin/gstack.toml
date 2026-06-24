@@ -15,7 +15,6 @@ self_update = "managed-by-hm"
 
 [isolation]
 subdir = "gstack"
-spoof_home = true
 home_subdirs = []
 caveat = "gstack harness: Codex CLI with gstack skills installed into the harness-local CODEX_HOME."
 

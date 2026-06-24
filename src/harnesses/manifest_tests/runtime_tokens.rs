@@ -149,7 +149,7 @@ fn bundled_package_harnesses_declare_self_update_policy() {
 }
 
 #[test]
-fn bundled_opencode_harnesses_keep_isolated_xdg_homes() {
+fn bundled_opencode_harnesses_redirect_config_without_xdg() {
     // Given: bundled manifests that target OpenCode.
     let specs = builtin_specs().expect("builtins parse");
     let opencode_specs: Vec<_> = specs
@@ -157,7 +157,9 @@ fn bundled_opencode_harnesses_keep_isolated_xdg_homes() {
         .filter(|spec| spec.target_runtime == "OpenCode")
         .collect();
 
-    // When/Then: every OpenCode harness keeps config/data/cache roots isolated.
+    // When/Then: every OpenCode harness is RedirectOnly — it redirects config via
+    // OPENCODE_CONFIG_DIR alone and leaves XDG_* unset so host XDG tools keep working,
+    // mirroring the OpenCode runtime record.
     assert!(
         !opencode_specs.is_empty(),
         "expected bundled OpenCode harnesses"
@@ -176,24 +178,15 @@ fn bundled_opencode_harnesses_keep_isolated_xdg_homes() {
             spec.id
         );
         assert_eq!(
-            envs.get("XDG_CONFIG_HOME").map(String::as_str),
-            Some("{home}/.config")
-        );
-        assert_eq!(
-            envs.get("XDG_DATA_HOME").map(String::as_str),
-            Some("{home}/.local/share")
-        );
-        assert_eq!(
-            envs.get("XDG_CACHE_HOME").map(String::as_str),
-            Some("{home}/.cache")
-        );
-        assert_eq!(
-            envs.get("XDG_STATE_HOME").map(String::as_str),
-            Some("{home}/.local/state")
-        );
-        assert_eq!(
             envs.get("OPENCODE_CONFIG_DIR").map(String::as_str),
             Some("{home}/.config/opencode")
+        );
+        let xdg_keys: Vec<&String> = envs.keys().filter(|key| key.starts_with("XDG_")).collect();
+        assert!(
+            xdg_keys.is_empty(),
+            "{} must not set XDG_* (RedirectOnly leaves host XDG tools intact), found: {:?}",
+            spec.id,
+            xdg_keys
         );
         assert!(!envs.contains_key("OPENCODE_PURE"));
     }

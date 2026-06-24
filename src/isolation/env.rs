@@ -88,9 +88,6 @@ pub fn build_isolation_env(
     paths: &IsolationPaths,
 ) -> HashMap<String, String> {
     let mut out = HashMap::new();
-    if spec.spoof_home() {
-        out.insert("HOME".to_string(), paths.home.to_string_lossy().to_string());
-    }
     for (k, v_template) in spec.static_envs() {
         out.insert(k.to_string(), subst_tokens(v_template, paths));
     }
@@ -159,6 +156,9 @@ pub fn build_sanitized_isolation_env(
     for (k, v) in build_isolation_env(spec, paths) {
         out.insert(k, v);
     }
+    // This is THE SpoofHome builder: HOME is always redirected to the isolated
+    // tree. Inserted after the static_envs overlay so the spoof always wins.
+    out.insert("HOME".to_string(), paths.home.to_string_lossy().to_string());
     out
 }
 

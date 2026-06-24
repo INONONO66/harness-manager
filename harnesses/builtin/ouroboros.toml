@@ -12,7 +12,6 @@ self_update = "managed-by-hm"
 
 [isolation]
 subdir = "ouroboros"
-spoof_home = true
 home_subdirs = [".ouroboros"]
 caveat = "ouroboros harness: Codex CLI with ouroboros workflow engine. Run `ouroboros setup --runtime codex` after install."
 

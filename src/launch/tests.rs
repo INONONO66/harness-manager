@@ -32,7 +32,6 @@ kind = "manual"
 instructions = "manual"
 
 [isolation]
-spoof_home = true
 home_subdirs = [".codex"]
 static_envs = { CODEX_HOME = "{home}/.codex" }
 seed_files = []
@@ -127,8 +126,8 @@ fn runtime_isolation_rejects_allow_keychain_for_non_claude() {
 fn isolated_launch_env_uses_allowlist_and_strips_arbitrary_host_secrets() {
     let runtimes = test_runtimes();
     let harnesses = plugin_registry();
-    let (harness, runtime) = match resolve_target("launch-plugin", &runtimes, &harnesses).unwrap() {
-        LaunchTarget::Harness { harness, runtime } => (harness, runtime),
+    let harness = match resolve_target("launch-plugin", &runtimes, &harnesses).unwrap() {
+        LaunchTarget::Harness { harness, .. } => harness,
         _ => panic!("expected Harness"),
     };
     let paths = isolation::IsolationPaths {
@@ -155,6 +154,12 @@ fn isolated_launch_env_uses_allowlist_and_strips_arbitrary_host_secrets() {
         ("OPENROUTER_API_KEY".to_string(), "openrouter".to_string()),
     ]);
 
+    // build_launch_env dispatches on the TARGET RUNTIME's spoof_home flag. Claude Code is the
+    // only spoof_home=true runtime, so resolve it to exercise the SpoofHome sanitized path
+    // (allowlist + arbitrary-secret strip). The harness isolation overlay still applies on top.
+    let runtime = runtimes
+        .find_by_display_name("Claude Code")
+        .expect("Claude Code runtime is registered");
     let env = build_launch_env(&inherited, runtime, Some((&harness.isolation, &paths)));
 
     assert_eq!(env.get("PATH"), Some(&"/bin".to_string()));

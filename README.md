@@ -202,7 +202,6 @@ package = "my-harness-package"
 self_update = "managed-by-hm"
 
 [isolation]
-spoof_home = true
 home_subdirs = []
 static_envs = { CODEX_HOME = "{home}/.codex" }
 ```
@@ -294,7 +293,7 @@ After that one-time setup, publishing a GitHub tag runs `.github/workflows/relea
 
 Runtimes are native Rust definitions in `src/runtimes/defs/` — one file per runtime, each a `pub fn record() -> RuntimeRecord`, aggregated by `defs::all()`. There is no runtime TOML manifest layer and no user/plugin runtime discovery; adding or changing a runtime is a code change. (Harnesses are still declarative TOML — see Harnesses above.)
 
-Each runtime declares one of three injection strategies (the `InjectionRecord` enum — the only strategies in core) plus a containment mode (`IsolationPlan.spoof_home`).
+Each runtime declares one of three injection strategies (the `InjectionRecord` enum — the only strategies in core) plus a containment mode (`RuntimeRecord.spoof_home`).
 
 | Runtime | Detection | Auth | Strategy | Injection |
 |---|---|---|---|---|
@@ -313,10 +312,10 @@ The three strategies are the only ones in core. Per-runtime knowledge lives in t
 
 ### Isolation: RedirectOnly vs SpoofHome
 
-Each runtime declares a containment mode via `IsolationPlan.spoof_home`, dispatched in `launch::build_launch_env` on `iso.spoof_home()`:
+Each runtime declares a containment mode via `RuntimeRecord.spoof_home`, dispatched in `launch::build_launch_env` on the target runtime's `runtime.spoof_home` (harnesses inherit it from their target runtime):
 
-- **RedirectOnly** (`spoof_home = false` — codex, opencode, pi, gajae-code, grok): `HOME` stays the host's. Only the runtime's own state dir is redirected into the hm tree via its native env var (`CODEX_HOME`, `PI_CODING_AGENT_DIR`, `OPENCODE_CONFIG_DIR`, …). The child inherits the full host environment minus AI API keys, so host tooling — `gh`, `cargo`, `ssh`, mise/asdf — works exactly as it does outside hm. Containment still holds because the runtime writes its own config/sessions/auth under the redirected dir.
-- **SpoofHome** (`spoof_home = true` — Claude and all harnesses): `HOME` is spoofed to an isolated tree and the child env is reduced to a safe allowlist with host secrets stripped. Used when a runtime ignores its own redirect env (Claude's `CLAUDE_CONFIG_DIR`) or when full isolation is wanted.
+- **RedirectOnly** (`spoof_home = false` — codex, opencode, pi, gajae-code, grok, and every harness that targets them): `HOME` stays the host's. Only the runtime's own state dir is redirected into the hm tree via its native env var (`CODEX_HOME`, `PI_CODING_AGENT_DIR`, `OPENCODE_CONFIG_DIR`, …). The child inherits the full host environment minus AI API keys, so host tooling — `gh`, `cargo`, `ssh`, mise/asdf — works exactly as it does outside hm. Containment still holds because the runtime writes its own config/sessions/auth under the redirected dir.
+- **SpoofHome** (`spoof_home = true` — only Claude, plus harnesses that target Claude such as `gstack-claude`/`superpowers-claude`/`omc`): `HOME` is spoofed to an isolated tree and the child env is reduced to a safe allowlist with host secrets stripped. Used when a runtime ignores its own redirect env (Claude's `CLAUDE_CONFIG_DIR`). Harnesses inherit this from their target runtime.
 
 ### Injection strategy 1: `env` (single-provider runtimes)
 

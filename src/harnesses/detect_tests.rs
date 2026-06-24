@@ -11,7 +11,6 @@ fn empty_iso(subdir: &str) -> IsolationPlan {
     IsolationPlan {
         subdir: subdir.to_string(),
         runtime_subdir: subdir.to_string(),
-        spoof_home: false,
         home_subdirs: Vec::new(),
         static_envs: Vec::new(),
         seed_files: Vec::new(),

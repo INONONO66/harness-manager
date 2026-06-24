@@ -12,7 +12,6 @@ self_update = "suppressed-by-env"
 
 [isolation]
 subdir = "omc"
-spoof_home = true
 home_subdirs = []
 caveat = "omc harness: Claude Code with oh-my-claudecode plugin. Install omc first: hm harness install omc"
 

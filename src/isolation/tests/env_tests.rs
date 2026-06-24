@@ -7,11 +7,10 @@ use crate::isolation::{
 use super::{iso_plan, tmp_paths};
 
 #[test]
-fn build_env_inserts_home_and_static_envs() {
+fn build_isolation_env_inserts_static_envs() {
     let p = tmp_paths("build-env");
     let spec = iso_plan(
         "test",
-        true,
         &[],
         &[
             ("CODEX_HOME", "{home}/.codex"),
@@ -24,23 +23,22 @@ fn build_env_inserts_home_and_static_envs() {
 
     let env = build_isolation_env(&spec, &p);
 
-    assert_eq!(
-        env.get("HOME").unwrap(),
-        &p.home.to_string_lossy().to_string()
-    );
     assert!(env.get("CODEX_HOME").unwrap().ends_with("/.codex"));
     assert!(env.get("SESSION_LOG_DIR").unwrap().ends_with("/state/logs"));
     assert_eq!(env.get("PI_OFFLINE").unwrap(), "1");
 }
 
 #[test]
-fn build_env_skips_home_when_spoof_disabled() {
-    let p = tmp_paths("build-env-no-spoof");
-    let spec = iso_plan("test", false, &[], &[("FOO", "bar")], Vec::new(), None);
+fn build_isolation_env_never_inserts_home() {
+    let p = tmp_paths("build-env-no-home");
+    let spec = iso_plan("test", &[], &[("FOO", "bar")], Vec::new(), None);
 
     let env = build_isolation_env(&spec, &p);
 
-    assert!(!env.contains_key("HOME"));
+    assert!(
+        !env.contains_key("HOME"),
+        "build_isolation_env only overlays static_envs; HOME spoofing belongs to the sanitized builder"
+    );
     assert_eq!(env.get("FOO").unwrap(), "bar");
 }
 
@@ -49,7 +47,6 @@ fn build_sanitized_env_strips_hostile_vars_and_uses_isolated_home() {
     let p = tmp_paths("sanitized-env");
     let spec = iso_plan(
         "test",
-        true,
         &[],
         &[("CODEX_HOME", "{home}/.codex")],
         Vec::new(),
@@ -118,7 +115,7 @@ fn build_sanitized_env_strips_hostile_vars_and_uses_isolated_home() {
 #[test]
 fn build_sanitized_env_preserves_explicit_host_cli_config_over_defaults() {
     let p = tmp_paths("sanitized-env-explicit-cli");
-    let spec = iso_plan("test", true, &[], &[], Vec::new(), None);
+    let spec = iso_plan("test", &[], &[], Vec::new(), None);
     let inherited = HashMap::from([
         ("HOME".to_string(), "/real/home".to_string()),
         ("GH_CONFIG_DIR".to_string(), "/custom/gh".to_string()),
@@ -170,7 +167,7 @@ fn build_sanitized_env_preserves_explicit_host_cli_config_over_defaults() {
 #[test]
 fn redirect_only_keeps_home_cargo_github_token_path_shims() {
     let p = tmp_paths("redirect-only-passthrough");
-    let spec = iso_plan("test", false, &[], &[], Vec::new(), None);
+    let spec = iso_plan("test", &[], &[], Vec::new(), None);
     let inherited = HashMap::from([
         ("HOME".to_string(), "/Users/test".to_string()),
         ("CARGO_HOME".to_string(), "/Users/test/.cargo".to_string()),
@@ -206,7 +203,7 @@ fn redirect_only_keeps_home_cargo_github_token_path_shims() {
 #[test]
 fn sanitized_isolation_replaces_home_and_strips_github_token() {
     let p = tmp_paths("sanitized-contrast");
-    let spec = iso_plan("test", true, &[], &[], Vec::new(), None);
+    let spec = iso_plan("test", &[], &[], Vec::new(), None);
     let inherited = HashMap::from([
         ("HOME".to_string(), "/Users/test".to_string()),
         ("CARGO_HOME".to_string(), "/Users/test/.cargo".to_string()),
@@ -285,10 +282,9 @@ fn redirect_only_credential_strip_contains_ai_credentials() {
 #[test]
 fn redirect_only_overlays_isolation_static_envs() {
     let p = tmp_paths("redirect-only-overlay");
-    // spoof_home=false, but isolation static_envs still overlay (with token substitution).
+    // RedirectOnly: isolation static_envs still overlay (with token substitution).
     let spec = iso_plan(
         "test",
-        false,
         &[],
         &[("CODEX_HOME", "{home}/.codex")],
         Vec::new(),
@@ -306,7 +302,7 @@ fn redirect_only_overlays_isolation_static_envs() {
         env.get("CODEX_HOME").map(String::as_str),
         Some(p.home.join(".codex").to_string_lossy().as_ref())
     );
-    // spoof_home=false -> HOME stays the host value (not overridden by the overlay).
+    // RedirectOnly: HOME stays the host value (not overridden by the overlay).
     assert_eq!(env.get("HOME").map(String::as_str), Some("/Users/test"));
     // No PATH filtering in RedirectOnly.
     assert_eq!(env.get("PATH").map(String::as_str), Some("/usr/bin"));

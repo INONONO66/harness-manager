@@ -59,7 +59,6 @@ struct HarnessManifest {
 struct IsolationManifest {
     #[serde(default)]
     subdir: Option<String>,
-    spoof_home: bool,
     #[serde(default)]
     home_subdirs: Vec<String>,
     #[serde(default)]
@@ -188,7 +187,6 @@ fn convert_isolation(
     Ok(IsolationPlan {
         runtime_subdir: subdir.clone(),
         subdir,
-        spoof_home: isolation.spoof_home,
         home_subdirs: isolation.home_subdirs,
         static_envs,
         seed_files,

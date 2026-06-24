@@ -78,7 +78,6 @@ fn test_isolation(subdir: &str) -> isolation::spec::IsolationPlan {
     isolation::spec::IsolationPlan {
         subdir: subdir.to_string(),
         runtime_subdir: subdir.to_string(),
-        spoof_home: false,
         home_subdirs: Vec::new(),
         static_envs: Vec::new(),
         seed_files: Vec::new(),

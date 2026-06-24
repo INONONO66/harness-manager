@@ -62,10 +62,10 @@ pub fn record() -> RuntimeRecord {
                 legacy_provider: None,
             },
         )),
+        spoof_home: false,
         isolation: Some(IsolationPlan {
             subdir: "pi".to_string(),
             runtime_subdir: "pi".to_string(),
-            spoof_home: false,
             home_subdirs: vec![".pi/agent".to_string()],
             static_envs: vec![
                 (

@@ -90,10 +90,10 @@ pub fn record() -> RuntimeRecord {
                 legacy_provider: Some("openai".to_string()),
             },
         )),
+        spoof_home: false,
         isolation: Some(IsolationPlan {
             subdir: "opencode".to_string(),
             runtime_subdir: "opencode".to_string(),
-            spoof_home: false,
             home_subdirs: vec![
                 ".config/opencode".to_string(),
                 ".local/share/opencode".to_string(),

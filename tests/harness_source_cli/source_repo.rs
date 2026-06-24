@@ -23,7 +23,6 @@ bin_subdir = ".custom/bin"
 self_update = "managed-by-hm"
 
 [isolation]
-spoof_home = true
 home_subdirs = []
 static_envs = {{ CODEX_HOME = "{{home}}/.codex" }}
 "#

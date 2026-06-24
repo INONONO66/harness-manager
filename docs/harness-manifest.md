@@ -75,7 +75,6 @@ self_update = "not-applicable"
 
 [isolation]
 subdir = "demo"
-spoof_home = true
 home_subdirs = []
 static_envs = { CODEX_HOME = "{home}/.codex", DEMO_STATE = "{state}/demo" }
 caveat = "Demo harness runs with an isolated HOME."
@@ -179,8 +178,6 @@ harnesses must declare this field.
 After a successful install, hm records the resolved package manager under the harness isolation state and prefers it during update/remove. This keeps fallback chains such as `uv -> pipx -> pip -> pip3` and `bunx -> npx` stable across lifecycle commands.
 
 `isolation.subdir`: optional runtime directory name. Defaults to `id`.
-
-`isolation.spoof_home`: when true, `HOME` points at the harness isolation home.
 
 `isolation.home_subdirs`: directories created under the isolated home.
 

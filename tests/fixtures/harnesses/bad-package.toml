@@ -10,7 +10,6 @@ kind = "npm-global"
 package = "--prefix=/tmp/x"
 
 [isolation]
-spoof_home = true
 home_subdirs = [".codex"]
 static_envs = { CODEX_HOME = "{home}/.codex" }
 seed_files = []

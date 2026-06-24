@@ -11,7 +11,6 @@ kind = "manual"
 instructions = "manual"
 
 [isolation]
-spoof_home = true
 home_subdirs = [".codex"]
 static_envs = { CODEX_HOME = "{home}/.codex" }
 seed_files = []

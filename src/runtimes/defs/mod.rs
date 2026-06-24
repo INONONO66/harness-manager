@@ -38,7 +38,7 @@ mod tests {
     #[test]
     fn only_claude_has_spoof_home_true() {
         for r in all() {
-            let spoof = r.isolation.as_ref().map(|i| i.spoof_home).unwrap_or(false);
+            let spoof = r.spoof_home;
             if r.name == "Claude Code" {
                 assert!(spoof, "Claude should have spoof_home=true");
             } else {

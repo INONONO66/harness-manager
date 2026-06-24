@@ -15,7 +15,6 @@ self_update = "managed-by-hm"
 
 [isolation]
 subdir = "gstack-claude"
-spoof_home = true
 home_subdirs = []
 caveat = "gstack-claude harness: Claude Code with gstack skills installed into the harness-local HOME."
 
