@@ -1,6 +1,6 @@
 {
   "name": "harness-manager",
-  "version": "0.2.11",
+  "version": "0.3.0",
   "description": "Agent Runtime Manager - detect, manage, and launch AI coding agent runtimes from one place",
   "license": "MIT",
   "type": "module",
