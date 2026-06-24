@@ -194,7 +194,7 @@ fn redirect_only_keeps_home_cargo_github_token_path_shims() {
         Some("ghp_secret")
     );
     assert!(
-        env.get("ANTHROPIC_API_KEY").is_none(),
+        !env.contains_key("ANTHROPIC_API_KEY"),
         "AI credential must be stripped in RedirectOnly"
     );
     assert!(
@@ -226,10 +226,10 @@ fn sanitized_isolation_replaces_home_and_strips_github_token() {
     );
     assert_ne!(env.get("HOME").map(String::as_str), Some("/Users/test"));
     assert!(
-        env.get("GITHUB_TOKEN").is_none(),
+        !env.contains_key("GITHUB_TOKEN"),
         "SpoofHome must strip host secret GITHUB_TOKEN"
     );
-    assert!(env.get("ANTHROPIC_API_KEY").is_none());
+    assert!(!env.contains_key("ANTHROPIC_API_KEY"));
     assert!(
         !env.get("PATH").unwrap().contains("mise/shims"),
         "SpoofHome must strip mise shims from PATH"

@@ -111,7 +111,10 @@ pub fn record() -> RuntimeRecord {
                     "{home}/.config/opencode".to_string(),
                 ),
                 ("OPENCODE_DISABLE_AUTOUPDATE".to_string(), "1".to_string()),
-                ("OPENCODE_DISABLE_PROJECT_CONFIG".to_string(), "1".to_string()),
+                (
+                    "OPENCODE_DISABLE_PROJECT_CONFIG".to_string(),
+                    "1".to_string(),
+                ),
             ],
             seed_files: vec![],
             caveat: None,

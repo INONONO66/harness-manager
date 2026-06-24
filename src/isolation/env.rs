@@ -127,7 +127,10 @@ pub fn build_sanitized_isolation_env(
     }
     if !out.contains_key("GIT_CONFIG_GLOBAL") {
         if let Some(home) = inherited.get("HOME") {
-            out.insert("GIT_CONFIG_GLOBAL".to_string(), format!("{}/.gitconfig", home));
+            out.insert(
+                "GIT_CONFIG_GLOBAL".to_string(),
+                format!("{}/.gitconfig", home),
+            );
         }
     }
     if !out.contains_key("CARGO_HOME") {
@@ -147,7 +150,10 @@ pub fn build_sanitized_isolation_env(
     }
     if !out.contains_key("NPM_CONFIG_USERCONFIG") {
         if let Some(home) = inherited.get("HOME") {
-            out.insert("NPM_CONFIG_USERCONFIG".to_string(), format!("{}/.npmrc", home));
+            out.insert(
+                "NPM_CONFIG_USERCONFIG".to_string(),
+                format!("{}/.npmrc", home),
+            );
         }
     }
     for (k, v) in build_isolation_env(spec, paths) {

@@ -68,7 +68,10 @@ pub fn record() -> RuntimeRecord {
             spoof_home: false,
             home_subdirs: vec![".pi/agent".to_string()],
             static_envs: vec![
-                ("PI_CODING_AGENT_DIR".to_string(), "{home}/.pi/agent".to_string()),
+                (
+                    "PI_CODING_AGENT_DIR".to_string(),
+                    "{home}/.pi/agent".to_string(),
+                ),
                 ("PI_OFFLINE".to_string(), "1".to_string()),
                 ("PI_SKIP_VERSION_CHECK".to_string(), "1".to_string()),
                 ("PI_TELEMETRY".to_string(), "0".to_string()),
