@@ -4,7 +4,7 @@ use std::process::Command;
 
 use anyhow::Context;
 
-use crate::harnesses::manifest::PackageCommandTemplate;
+use crate::harnesses::spec::PackageCommandTemplate;
 use crate::harnesses::types::HarnessSpec;
 use crate::isolation::IsolationPaths;
 

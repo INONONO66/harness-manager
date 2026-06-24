@@ -85,15 +85,15 @@ fn test_isolation(subdir: &str) -> isolation::spec::IsolationPlan {
     }
 }
 
-fn custom_wrapper_harness(subdir: &str) -> crate::harnesses::manifest::ManifestHarnessSpec {
-    crate::harnesses::manifest::ManifestHarnessSpec {
+fn custom_wrapper_harness(subdir: &str) -> crate::harnesses::types::HarnessSpec {
+    crate::harnesses::types::HarnessSpec {
         id: subdir.to_string(),
         aliases: Vec::new(),
         display_name: subdir.to_string(),
         target_runtime: "shell".to_string(),
         target_runtime_shared_state: None,
-        package: crate::harnesses::manifest::ManifestPackageSpec::Custom {
-            install: crate::harnesses::manifest::PackageCommandTemplate {
+        package: crate::harnesses::types::PackageSpec::Custom {
+            install: crate::harnesses::types::PackageCommandTemplate {
                 argv: vec!["installer".to_string(), "install".to_string()],
             },
             update: None,

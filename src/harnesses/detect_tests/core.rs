@@ -47,30 +47,23 @@ fn detect_one_missing_binary() {
 #[test]
 fn detect_all_returns_registered_harnesses() {
     let runtimes = test_runtimes();
-    let registry = crate::harnesses::registry::HarnessRegistry::from_sources(
-        &[crate::harnesses::registry::HarnessSource::manifest(
-            "detect-plugin.toml",
-            r#"
-schema_version = 1
-id = "detect-plugin"
-display_name = "Detect Plugin"
-target_runtime = "Codex CLI"
-detect_binaries = ["nonexistent-detect-plugin-bin"]
-launch_args = []
-
-[package]
-kind = "manual"
-instructions = "manual"
-
-[isolation]
-home_subdirs = [".codex"]
-static_envs = { CODEX_HOME = "{home}/.codex" }
-seed_files = []
-"#,
-        )],
-        &runtimes,
-    )
-    .unwrap();
+    let spec = HarnessSpec {
+        id: "detect-plugin".to_string(),
+        aliases: vec![],
+        display_name: "Detect Plugin".to_string(),
+        target_runtime: "Codex CLI".to_string(),
+        target_runtime_shared_state: None,
+        package: PackageSpec::Manual {
+            instructions: "manual".to_string(),
+            self_update: None,
+        },
+        detect_binaries: vec!["nonexistent-detect-plugin-bin".to_string()],
+        launch_binary: None,
+        launch_args: vec![],
+        isolation: empty_iso("detect-plugin"),
+    };
+    let registry =
+        crate::harnesses::registry::HarnessRegistry::from_specs(&runtimes, vec![spec]).unwrap();
 
     let results = detect_all(&registry);
 
@@ -86,10 +79,7 @@ fn detect_all_builtin_only_returns_indexed_builtins() {
         crate::harnesses::registry::HarnessRegistry::builtin_only(&test_runtimes()).unwrap();
     let results = detect_all(&registry);
 
-    assert_eq!(
-        results.len(),
-        crate::harnesses::builtin::BUILTIN_MANIFESTS.len()
-    );
+    assert_eq!(results.len(), crate::harnesses::defs::all().len());
 }
 
 #[test]

@@ -1,10 +1,9 @@
-pub mod builtin;
+pub mod defs;
 pub mod detect;
 pub mod install;
-pub mod manifest;
 mod package;
 pub mod registry;
-pub mod source;
+mod spec;
 pub mod state;
 pub mod types;
 

@@ -15,31 +15,31 @@ fn builtin_harnesses() -> HarnessRegistry {
 }
 
 fn plugin_registry() -> HarnessRegistry {
-    HarnessRegistry::from_sources(
-        &[crate::harnesses::registry::HarnessSource::manifest(
-            "launch-plugin.toml",
-            r#"
-schema_version = 1
-id = "launch-plugin"
-display_name = "Launch Plugin"
-target_runtime = "Codex CLI"
-detect_binaries = ["launch-plugin-bin"]
-launch_binary = "plugin-wrapper"
-launch_args = ["--plugin-mode"]
-
-[package]
-kind = "manual"
-instructions = "manual"
-
-[isolation]
-home_subdirs = [".codex"]
-static_envs = { CODEX_HOME = "{home}/.codex" }
-seed_files = []
-"#,
-        )],
-        &test_runtimes(),
-    )
-    .unwrap()
+    use crate::harnesses::types::{HarnessSpec, PackageSpec};
+    use crate::isolation::spec::IsolationPlan;
+    let spec = HarnessSpec {
+        id: "launch-plugin".to_string(),
+        aliases: vec![],
+        display_name: "Launch Plugin".to_string(),
+        target_runtime: "Codex CLI".to_string(),
+        target_runtime_shared_state: None,
+        package: PackageSpec::Manual {
+            instructions: "manual".to_string(),
+            self_update: None,
+        },
+        detect_binaries: vec!["launch-plugin-bin".to_string()],
+        launch_binary: Some("plugin-wrapper".to_string()),
+        launch_args: vec!["--plugin-mode".to_string()],
+        isolation: IsolationPlan {
+            subdir: "launch-plugin".to_string(),
+            runtime_subdir: "launch-plugin".to_string(),
+            home_subdirs: vec![".codex".to_string()],
+            static_envs: vec![("CODEX_HOME".to_string(), "{home}/.codex".to_string())],
+            seed_files: vec![],
+            caveat: None,
+        },
+    };
+    HarnessRegistry::from_specs(&test_runtimes(), vec![spec]).unwrap()
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
@@ -15,13 +15,9 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Copy built-in runtime and harness manifests to ~/.config/hm/ so you can edit them
+    /// Install built-in harnesses (runtimes and harnesses are compiled into hm)
     Init {
-        /// Overwrite existing manifests in ~/.config/hm/{runtimes,harnesses}.d/
-        #[arg(long)]
-        force: bool,
-
-        /// Also install every harness whose `package.kind` is not `manual`
+        /// Install every harness whose `package.kind` is not `manual`
         #[arg(long)]
         install: bool,
     },
@@ -146,44 +142,10 @@ pub enum HarnessAction {
     /// List available harnesses and their install status
     #[command(alias = "ls")]
     List,
-    /// Add a harness source under a local alias
-    Add {
-        /// Git repository URL or local git repository path containing harness.toml.
-        source: String,
-
-        /// Local command alias for this harness.
-        #[arg(long)]
-        alias: String,
-    },
     /// Install a harness
     Install {
-        /// Registered harness name, or a Git repository/path when --alias is provided.
+        /// Registered harness name
         name: String,
-
-        /// Add the source under this alias before installing.
-        #[arg(long)]
-        alias: Option<String>,
-    },
-    /// Generate and install a harness from package metadata
-    InstallPackage {
-        /// Package name passed to the selected installer.
-        package: String,
-
-        /// Local command alias for this harness.
-        #[arg(long)]
-        alias: String,
-
-        /// Target runtime id or display name.
-        #[arg(long)]
-        runtime: String,
-
-        /// Package installer strategy.
-        #[arg(long, value_enum)]
-        kind: PackageKindArg,
-
-        /// Binary name used to detect and launch the harness.
-        #[arg(long)]
-        binary: String,
     },
     /// Update an installed harness
     Update {
@@ -199,13 +161,4 @@ pub enum HarnessAction {
         #[arg(long)]
         purge: bool,
     },
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum PackageKindArg {
-    NpmGlobal,
-    NpmIsolated,
-    NpxInstaller,
-    BunxInstaller,
-    PythonTool,
 }

@@ -1,13 +1,13 @@
 use std::process::Command;
 
 use super::{apply_isolation_env, apply_npm_isolated_env, install};
-use crate::harnesses::manifest::PackageCommandTemplate;
 use crate::harnesses::package::{
     build_install_cmd, build_uninstall_cmd_with_manager, build_update_cmd_with_manager,
 };
-use crate::harnesses::registry::{HarnessRegistry, HarnessSource};
+use crate::harnesses::registry::HarnessRegistry;
+use crate::harnesses::spec::PackageCommandTemplate;
 use crate::harnesses::state::{read_package_manager, record_package_manager};
-use crate::harnesses::types::PackageSpec;
+use crate::harnesses::types::{HarnessSpec, PackageSpec};
 
 #[path = "install_tests/npm_isolated.rs"]
 mod npm_isolated;
@@ -21,30 +21,30 @@ fn builtin_registry() -> HarnessRegistry {
 }
 
 fn plugin_registry() -> HarnessRegistry {
-    HarnessRegistry::from_sources(
-        &[HarnessSource::manifest(
-            "install-plugin.toml",
-            r#"
-schema_version = 1
-id = "install-plugin"
-display_name = "Install Plugin"
-target_runtime = "Codex CLI"
-detect_binaries = ["install-plugin-bin"]
-launch_args = []
-
-[package]
-kind = "manual"
-instructions = "manual"
-
-[isolation]
-home_subdirs = [".codex"]
-static_envs = { CODEX_HOME = "{home}/.codex" }
-seed_files = []
-"#,
-        )],
-        &test_runtimes(),
-    )
-    .unwrap()
+    use crate::isolation::spec::IsolationPlan;
+    let spec = HarnessSpec {
+        id: "install-plugin".to_string(),
+        aliases: vec![],
+        display_name: "Install Plugin".to_string(),
+        target_runtime: "Codex CLI".to_string(),
+        target_runtime_shared_state: None,
+        package: PackageSpec::Manual {
+            instructions: "manual".to_string(),
+            self_update: None,
+        },
+        detect_binaries: vec!["install-plugin-bin".to_string()],
+        launch_binary: None,
+        launch_args: vec![],
+        isolation: IsolationPlan {
+            subdir: "install-plugin".to_string(),
+            runtime_subdir: "install-plugin".to_string(),
+            home_subdirs: vec![".codex".to_string()],
+            static_envs: vec![("CODEX_HOME".to_string(), "{home}/.codex".to_string())],
+            seed_files: vec![],
+            caveat: None,
+        },
+    };
+    HarnessRegistry::from_specs(&test_runtimes(), vec![spec]).unwrap()
 }
 
 fn cmd_to_args(cmd: &Command) -> Vec<String> {

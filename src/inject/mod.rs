@@ -277,31 +277,32 @@ mod tests {
 
     #[test]
     fn injection_target_resolves_plugin_harness_id_to_runtime_spec() {
+        use crate::harnesses::types::{HarnessSpec, PackageSpec};
+        use crate::isolation::spec::IsolationPlan;
         let runtimes = RuntimeRegistry::builtin_only().unwrap();
-        let harnesses = HarnessRegistry::from_sources(
-            &[crate::harnesses::registry::HarnessSource::manifest(
-                "inject-plugin.toml",
-                r#"
-schema_version = 1
-id = "inject-plugin"
-display_name = "Inject Plugin"
-target_runtime = "Codex CLI"
-detect_binaries = ["inject-plugin-bin"]
-launch_args = []
-
-[package]
-kind = "manual"
-instructions = "manual"
-
-[isolation]
-home_subdirs = [".codex"]
-static_envs = { CODEX_HOME = "{home}/.codex" }
-seed_files = []
-"#,
-            )],
-            &runtimes,
-        )
-        .unwrap();
+        let spec = HarnessSpec {
+            id: "inject-plugin".to_string(),
+            aliases: vec![],
+            display_name: "Inject Plugin".to_string(),
+            target_runtime: "Codex CLI".to_string(),
+            target_runtime_shared_state: None,
+            package: PackageSpec::Manual {
+                instructions: "manual".to_string(),
+                self_update: None,
+            },
+            detect_binaries: vec!["inject-plugin-bin".to_string()],
+            launch_binary: None,
+            launch_args: vec![],
+            isolation: IsolationPlan {
+                subdir: "inject-plugin".to_string(),
+                runtime_subdir: "inject-plugin".to_string(),
+                home_subdirs: vec![".codex".to_string()],
+                static_envs: vec![("CODEX_HOME".to_string(), "{home}/.codex".to_string())],
+                seed_files: vec![],
+                caveat: None,
+            },
+        };
+        let harnesses = HarnessRegistry::from_specs(&runtimes, vec![spec]).unwrap();
 
         let target = find_injection_target("inject-plugin", &runtimes, &harnesses).unwrap();
 

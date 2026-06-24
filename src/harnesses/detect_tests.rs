@@ -1,5 +1,5 @@
 use super::*;
-use crate::harnesses::manifest::PackageCommandTemplate;
+use crate::harnesses::spec::PackageCommandTemplate;
 use crate::harnesses::types::{HarnessSpec, PackageSpec};
 use crate::isolation::spec::IsolationPlan;
 

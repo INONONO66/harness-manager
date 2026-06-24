@@ -1,3 +1,3 @@
-pub use crate::harnesses::manifest::{
-    ManifestHarnessSpec as HarnessSpec, ManifestPackageSpec as PackageSpec,
-};
+#[cfg(test)]
+pub use crate::harnesses::spec::PackageCommandTemplate;
+pub use crate::harnesses::spec::{HarnessSpec, PackageSpec};
