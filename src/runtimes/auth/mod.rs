@@ -33,12 +33,6 @@ fn run_probe(probe: &AuthProbeRecord, config_dir: Option<&Path>) -> AuthStatus {
             label,
         } => json::probe_json_file(config_dir, relative_path, existence_field, label)
             .unwrap_or(AuthStatus::NotConfigured),
-        AuthProbeRecord::OAuthFile {
-            relative_path,
-            token_field,
-            label,
-        } => oauth::probe_oauth_file(config_dir, relative_path, token_field, label)
-            .unwrap_or(AuthStatus::NotConfigured),
         AuthProbeRecord::NestedOAuthFile {
             relative_path,
             path,

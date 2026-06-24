@@ -4,30 +4,6 @@ use super::jwt::token_to_auth_status;
 use super::util::to_camel;
 pub(super) use crate::runtimes::types::AuthStatus;
 
-pub(super) fn probe_oauth_file(
-    config_dir: Option<&Path>,
-    relative_path: &str,
-    token_field: &str,
-    label: &str,
-) -> Option<AuthStatus> {
-    let dir = config_dir?;
-    let file = dir.join(relative_path);
-    if !file.is_file() {
-        return None;
-    }
-
-    let content = std::fs::read_to_string(&file).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
-
-    let token = json
-        .get(token_field)
-        .or_else(|| json.get(to_camel(token_field)))
-        .and_then(|v| v.as_str())
-        .filter(|t| !t.trim().is_empty())?;
-
-    Some(token_to_auth_status(token, label))
-}
-
 pub(super) fn probe_nested_oauth(
     config_dir: Option<&Path>,
     relative_path: &str,
@@ -56,7 +32,7 @@ pub(super) fn probe_nested_oauth(
 
 #[cfg(test)]
 mod oauth_file_tests {
-    use super::{probe_nested_oauth, probe_oauth_file, AuthStatus};
+    use super::{probe_nested_oauth, AuthStatus};
     use std::path::PathBuf;
 
     fn write_oauth_file(label: &str, contents: &str) -> (PathBuf, String) {
@@ -73,51 +49,6 @@ mod oauth_file_tests {
         let file_name = format!("auth-{label}.json");
         std::fs::write(dir.join(&file_name), contents).unwrap();
         (dir, file_name)
-    }
-
-    #[test]
-    fn oauth_file_with_empty_token_field_returns_none() {
-        let (dir, file) = write_oauth_file("empty-token", r#"{"access_token": ""}"#);
-
-        let result = probe_oauth_file(Some(&dir), &file, "access_token", "ChatGPT OAuth");
-
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(
-            result.is_none(),
-            "empty access_token must not be considered valid auth; got {result:?}"
-        );
-    }
-
-    #[test]
-    fn oauth_file_with_whitespace_token_field_returns_none() {
-        let (dir, file) = write_oauth_file("ws-token", r#"{"access_token": "   \n  "}"#);
-
-        let result = probe_oauth_file(Some(&dir), &file, "access_token", "ChatGPT OAuth");
-
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(
-            result.is_none(),
-            "whitespace-only access_token must not be considered valid auth; got {result:?}"
-        );
-    }
-
-    #[test]
-    fn oauth_file_with_real_token_returns_valid() {
-        let (dir, file) =
-            write_oauth_file("real-token", r#"{"access_token": "real-secret-abcdef"}"#);
-
-        let result = probe_oauth_file(Some(&dir), &file, "access_token", "ChatGPT OAuth");
-
-        let _ = std::fs::remove_dir_all(&dir);
-        match result {
-            Some(AuthStatus::Valid { detail }) => {
-                assert!(
-                    detail.contains("ChatGPT OAuth"),
-                    "label should appear: {detail}"
-                );
-            }
-            other => panic!("expected Valid, got {other:?}"),
-        }
     }
 
     #[test]

@@ -40,11 +40,6 @@ pub enum AuthProbeRecord {
         existence_field: String,
         label: String,
     },
-    OAuthFile {
-        relative_path: String,
-        token_field: String,
-        label: String,
-    },
     NestedOAuthFile {
         relative_path: String,
         path: Vec<String>,
