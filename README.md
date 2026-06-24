@@ -8,8 +8,8 @@ Claude Code, Codex CLI, Gajae-Code, Grok CLI, OpenCode, Pi, and harnesses built 
 hm detect
 hm use codex --profile proxy
 hm use claude --profile proxy
-hm harness install my-harness
-hm use my-harness -- --help
+hm harness install lazycodex
+hm use lazycodex -- --help
 ```
 
 ## Why hm
@@ -18,8 +18,7 @@ hm use my-harness -- --help
 - Launch agents with clean, profile-driven env injection.
 - Keep host secrets out of child processes unless a profile explicitly injects them.
 - Run wrapper harnesses in isolated homes under `$XDG_DATA_HOME/hm/runtimes`.
-- Add new harnesses with TOML manifests. No Rust edit, no core rebuild, no hardcoded harness IDs.
-- Fail closed before install, update, remove, launch, or inject side effects when any manifest is invalid.
+- Add new harnesses as native Rust definitions — one folder, one line in `defs::all()`. No hardcoded harness IDs in the engine.
 
 ## What It Looks Like
 
@@ -39,7 +38,7 @@ $ hm detect
 
 ```bash
 $ hm harness list
-# bundled and user/plugin harness manifests are loaded through the same registry
+# nine built-in harnesses loaded from native Rust definitions
 ```
 
 ## Install
@@ -60,13 +59,7 @@ npm install -g harness-manager
 
 The npm package downloads the matching GitHub Release binary during install.
 
-Install and copy built-in manifests in one step:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/INONONO66/harness-manager/main/scripts/install.sh | sh -s -- --init
-```
-
-Install everything non-manual that `hm init --install` can manage:
+Install and then install all built-in harnesses in one step:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/INONONO66/harness-manager/main/scripts/install.sh | sh -s -- --install-harnesses
@@ -89,18 +82,11 @@ cargo install --path .
 
 ## First-Time Bootstrap (`hm init`)
 
-`hm init` copies every built-in runtime and harness manifest into `~/.config/hm/` so you can edit them. The embedded copies in the binary stay as defaults; your edits take precedence.
+Runtimes and harnesses are compiled into the `hm` binary — there are no manifest files to copy. `hm init --install` installs every non-manual built-in harness package.
 
 ```bash
-hm init                # write 6 runtimes + 5 harnesses to ~/.config/hm/{runtimes,harnesses}.d/ (skip existing)
-hm init --force        # overwrite existing user manifests with the embedded defaults
-hm init --install      # also install every non-manual harness package
-hm init --force --install   # clean reset: refresh manifests AND reinstall harnesses
+hm init --install      # install every non-manual built-in harness
 ```
-
-**Override rule.** User runtime manifests override bundled runtimes by normalized display name OR binary name; user harness manifests override by id OR alias. Byte-identical `hm init` copies are silent; any divergence emits a `note:` on stderr. Shadowed builtin routes are preserved as lookup aliases on the replacement, so harnesses referencing the old display name still resolve. A single user manifest shadowing MULTIPLE builtins fails closed, and two user manifests sharing a route fail closed.
-
-**What you can edit.** Anything in the manifest schema — change `supported_providers`, add `provider_api_key_envs` or `provider_header_overrides`, retarget `config_path`, swap the package install strategy, add new `auth_probes`, etc. Run `hm use <runtime>` and your changes drive the next launch.
 
 ## Daily Commands
 
@@ -128,107 +114,43 @@ When `hm use` launches a target, `hm` strips hostile inherited AI env vars, reso
 
 ## Harnesses
 
-Harnesses are wrappers or extensions that sit on top of runtimes. Builtins and user plugins are declarative TOML manifests loaded by the same registry path. The core does not need to know names like a specific wrapper package or custom harness command.
+Harnesses are wrappers or extensions that sit on top of runtimes. Like runtimes, they are native Rust definitions in `src/harnesses/defs/` — one folder per harness, split by concern:
+
+- `mod.rs` — identity: id, aliases, display name, target runtime, detect binaries, launch binary
+- `package.rs` — install/remove/update strategy (npm-global, npm-isolated, npx-installer, bunx-installer, python-tool, custom, git-worktree)
+- `isolation.rs` — isolation env: static env vars, home subdirs, seed files, caveat
+
+Injection is inherited from each harness's target runtime. Adding a harness is a Rust code change — one folder plus one line in `defs::all()`. No hardcoded harness IDs appear in the engine.
+
+Nine built-in harnesses:
+
+| id | aliases | target runtime |
+|---|---|---|
+| lazycodex | lc | Codex CLI |
+| omx | — | Codex CLI |
+| superpowers | sp | Codex CLI |
+| gstack | gs | Codex CLI |
+| ouroboros | — | Codex CLI |
+| gstack-claude | gstack-cc, gsc | Claude Code |
+| superpowers-claude | superpowers-cc, spc | Claude Code |
+| omo | — | OpenCode |
+| omc | — | Claude Code |
 
 ```bash
 hm harness list
-hm harness install <harness-id>
-hm harness install <git-url-or-path> --alias <harness-id>
-hm harness install-package <package> --alias <harness-id> --runtime codex --kind npm-global --binary <bin>
-hm harness add <git-url-or-path> --alias <harness-id>
-hm harness update <harness-id>
-hm harness remove <harness-id>
-hm harness remove <harness-id> --purge
-hm use <harness-id> --profile proxy
-hm <harness-id> -- --help
+hm harness install <id>
+hm harness update <id>
+hm harness remove <id>
+hm harness remove <id> --purge
+hm use <id> --profile proxy
+hm <id> -- --help
 ```
-
-Install directly from a plugin repository when it contains `harness.toml` at
-the repository root:
-
-```bash
-hm harness install https://github.com/example/my-harness --alias my-harness
-hm use my-harness -- --help
-```
-
-Or register it without installing yet:
-
-```bash
-hm harness add https://github.com/example/my-harness --alias my-harness
-hm harness install my-harness
-```
-
-For simple package-backed harnesses, generate the manifest and install in one
-step:
-
-```bash
-hm harness install-package my-harness-package \
-  --alias my-harness \
-  --runtime codex \
-  --kind npm-global \
-  --binary my-harness
-```
-
-`hm` stores the repository under the plugin discovery path and rewrites the
-manifest command id to the alias you chose. The runtime shared-state policy
-comes from the target runtime manifest; users do not edit `[shared_state]` in
-harness manifests.
-
-You can also drop a manifest into one of these locations:
-
-```text
-$XDG_CONFIG_HOME/hm/harnesses.d/*.toml
-$XDG_DATA_HOME/hm/harnesses.d/*.toml
-$XDG_DATA_HOME/hm/plugins/*/harness.toml
-~/.config/hm/harnesses.d/*.toml
-~/.local/share/hm/harnesses.d/*.toml
-~/.local/share/hm/plugins/*/harness.toml
-```
-
-Minimal manifest:
-
-```toml
-schema_version = 1
-id = "my-harness"
-aliases = ["mh"]
-display_name = "My Harness"
-target_runtime = "Codex CLI"
-detect_binaries = ["my-harness"]
-launch_binary = "my-harness"
-
-[package]
-kind = "npm-global"
-package = "my-harness-package"
-self_update = "managed-by-hm"
-
-[isolation]
-home_subdirs = []
-static_envs = { CODEX_HOME = "{home}/.codex" }
-```
-
-Then run:
-
-```bash
-hm harness list
-hm harness install my-harness
-hm use my-harness -- --help
-hm mh -- --help
-```
-
-Full schema and plugin packaging guidance: [docs/harness-manifest.md](docs/harness-manifest.md).
 
 ## Isolation Model
 
-`hm` treats harness manifests as untrusted input and validates the complete registry before side effects. Invalid manifests block the operation before package managers run, launch envs are built, files are seeded, or isolation directories are removed.
-
-- A user harness manifest with the same id or alias as a bundled harness overrides the builtin and prints `note:` to stderr. Byte-identical copies (e.g. fresh `hm init` output) are silent. A single user manifest that would shadow MULTIPLE bundled harnesses fails closed; two user manifests sharing a route also fail closed.
-- Harness IDs cannot shadow runtime commands such as `codex`.
-- Launch binaries must be executable names, not paths or shell snippets.
-- Package install strategies are structured: `npm-global`, `npm-isolated`, `npx-installer`, `bunx-installer`, `python-tool`, `custom`, or `manual`. The `npm-isolated` kind installs into the harness isolation home (`$XDG_DATA_HOME/hm/runtimes/<id>/home/.npm`) via `NPM_CONFIG_PREFIX` so the package's binaries never appear on the host `PATH`; `hm use <harness>` adds the declared package bin dir to the launch `PATH` and exec's the binary directly. Use this for harnesses whose CLI you want gated behind `hm use`.
-- Static env keys cannot be host secrets such as `*_TOKEN`, `*_SECRET`, or `*_API_KEY`.
-- Seed files must live under `{home}/`, `{runtime_home}/`, `{state}/`, or `{tmp}/`. Bundled wrappers keep config, plugins, cache, logs, and seed files under the wrapper's isolated `{home}` or `{state}`.
-- hm links only manifest-declared session/transcript artifacts from the user's native runtime home into the isolated runtime home. Bundled policies cover Codex sessions/history, OpenCode session stores and `opencode.db*`, Claude projects/transcripts, Pi sessions, Gajae session DBs, and Grok sessions.
-- Bundled runtimes do not share host auth files. Profile launches use profile-driven gateway/API credentials; non-profile launches keep auth isolated unless a custom runtime manifest explicitly declares `auth_files`.
+- The `npm-isolated` package kind installs into the harness isolation home (`$XDG_DATA_HOME/hm/runtimes/<id>/home/.npm`) via `NPM_CONFIG_PREFIX` so the package's binaries never appear on the host `PATH`; `hm use <harness>` adds the declared package bin dir to the launch `PATH` and exec's the binary directly. Use this for harnesses whose CLI you want gated behind `hm use`.
+- hm links session/transcript artifacts from the user's native runtime home into the isolated runtime home. Bundled policies cover Codex sessions/history, OpenCode session stores and `opencode.db*`, Claude projects/transcripts, Pi sessions, Gajae session DBs, and Grok sessions.
+- Bundled runtimes do not share host auth files. Profile launches use profile-driven gateway/API credentials; non-profile launches keep auth isolated.
 - Package-manager fallback choices are recorded after install and preferred for later update/remove, so `uv`/`pipx`/`pip` and `bunx`/`npx` paths do not drift silently between lifecycle commands.
 - Side-effecting operations take a per-harness runtime lock under `$XDG_DATA_HOME/hm/runtimes/.locks`.
 
@@ -291,7 +213,7 @@ After that one-time setup, publishing a GitHub tag runs `.github/workflows/relea
 
 ## Runtime Support
 
-Runtimes are native Rust definitions in `src/runtimes/defs/` — one file per runtime, each a `pub fn record() -> RuntimeRecord`, aggregated by `defs::all()`. There is no runtime TOML manifest layer and no user/plugin runtime discovery; adding or changing a runtime is a code change. (Harnesses are still declarative TOML — see Harnesses above.)
+Runtimes are native Rust definitions in `src/runtimes/defs/` — one file per runtime, each a `pub fn record() -> RuntimeRecord`, aggregated by `defs::all()`. There is no runtime TOML manifest layer and no user/plugin runtime discovery; adding or changing a runtime is a code change. Harnesses follow the same pattern — native Rust definitions in `src/harnesses/defs/` (see Harnesses above).
 
 Each runtime declares one of three injection strategies (the `InjectionRecord` enum — the only strategies in core) plus a containment mode (`RuntimeRecord.spoof_home`).
 
@@ -402,7 +324,7 @@ src/
     manifest/records.rs  owned RuntimeRecord domain types
     registry/dynamic.rs  RuntimeRegistry::load (from defs::all())
     auth/                per-variant auth probe dispatch
-  harnesses/           harness manifest parser, registry, package commands, install flow
+  harnesses/           native harness definitions (defs/), registry, package commands, install flow
   isolation/           isolated env, seed files, path safety, locks
   config/              profile config parsing + gateway schema + secret references
   launch/
@@ -412,8 +334,7 @@ src/
   inject/mod.rs        hm inject plan dry-run (calls validate_provider_config_seed)
 
 src/runtimes/defs/     native runtime records (claude, codex, gajae-code, grok, opencode, pi)
-harnesses/builtin/     bundled harness TOML manifests
-docs/                  manifest authoring guide
+src/harnesses/defs/    native harness records (lazycodex, omx, superpowers, gstack, ouroboros, gstack-claude, superpowers-claude, omo, omc)
 ```
 
 ## License
